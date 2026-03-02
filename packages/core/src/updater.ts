@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { CoreEvents } from './events.js';
-import type { ScanResult, Mod, ModFile } from './types.js';
+import type { ScanResult, Mod, ModFile, MCVersion, ModUpdate } from './types.js';
 import { scanDirectory } from './scanner.js';
 import { ModrinthClient } from './modrinth.js';
 
@@ -89,6 +89,43 @@ export class UpmodsCore extends EventEmitter {
       };
 
       this.emit('scan:complete', result);
+      return result;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.emit('error', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all Minecraft release versions from Modrinth.
+   * Results are cached after the first call.
+   * @returns Array of MCVersion objects, sorted newest-first
+   */
+  async getGameVersions(): Promise<MCVersion[]> {
+    try {
+      return await this.modrinth.getGameVersions();
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.emit('error', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check for available updates for a list of mods for a specific Minecraft version.
+   * Emits check:complete event with results.
+   * @param mods Array of identified mods
+   * @param mcVersion Target Minecraft version (e.g., "1.21.1")
+   * @returns Object with updates array and upToDate array
+   */
+  async checkUpdates(
+    mods: Mod[],
+    mcVersion: string
+  ): Promise<{ updates: ModUpdate[]; upToDate: Mod[] }> {
+    try {
+      const result = await this.modrinth.checkUpdates(mods, mcVersion);
+      this.emit('check:complete', result.updates, result.upToDate);
       return result;
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));

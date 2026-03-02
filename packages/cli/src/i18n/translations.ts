@@ -16,19 +16,21 @@ export interface Translations {
   };
   versionSelect: {
     title: string;
-    navHint: string;
+    hint: string;
   };
   check: {
     title: string;
-    colMod: string;
-    colInstalled: string;
-    colAvailable: string;
-    colStatus: string;
+    modName: string;
+    installed: string;
+    available: string;
+    status: string;
     upToDate: string;
     updateAvailable: string;
     notAvailable: string;
     allUpToDate: string;
-    downloadHint: string;
+    updatesFound: string;
+    hintWithUpdates: string;
+    hintNoUpdates: string;
   };
   download: {
     title: string;
@@ -65,19 +67,21 @@ export const en: Translations = {
   },
   versionSelect: {
     title: 'Select Minecraft version to check updates for',
-    navHint: '↑↓ navigate  Enter confirm  Q quit',
+    hint: '↑↓ navigate  Enter confirm  Q quit  L language',
   },
   check: {
     title: 'Update availability',
-    colMod: 'Mod',
-    colInstalled: 'Installed',
-    colAvailable: 'Available',
-    colStatus: 'Status',
-    upToDate: 'Up to date ✓',
+    modName: 'Mod',
+    installed: 'Installed',
+    available: 'Available',
+    status: 'Status',
+    upToDate: 'Up to date',
     updateAvailable: 'Update available',
-    notAvailable: 'Not available –',
+    notAvailable: 'Not available',
     allUpToDate: 'All mods are up to date.',
-    downloadHint: 'Press U to download updates  Q to quit',
+    updatesFound: '{count} update(s) available',
+    hintWithUpdates: 'Press U to download updates  Q to quit  L language',
+    hintNoUpdates: 'Press Q to quit  L language',
   },
   download: {
     title: 'Downloading updates…',
@@ -115,19 +119,21 @@ export const zhTW: Translations = {
   },
   versionSelect: {
     title: '',
-    navHint: '',
+    hint: '',
   },
   check: {
     title: '',
-    colMod: '',
-    colInstalled: '',
-    colAvailable: '',
-    colStatus: '',
+    modName: '',
+    installed: '',
+    available: '',
+    status: '',
     upToDate: '',
     updateAvailable: '',
     notAvailable: '',
     allUpToDate: '',
-    downloadHint: '',
+    updatesFound: '',
+    hintWithUpdates: '',
+    hintNoUpdates: '',
   },
   download: {
     title: '',
