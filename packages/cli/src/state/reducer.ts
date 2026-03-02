@@ -27,6 +27,7 @@ export interface AppState {
 export type AppAction =
   | { type: 'SCAN_PROGRESS'; done: number; total: number }
   | { type: 'SCAN_COMPLETE'; result: ScanResult }
+  | { type: 'PROCEED_TO_VERSION_SELECT' }
   | { type: 'MC_VERSIONS_LOADED'; versions: MCVersion[] }
   | { type: 'CURSOR_UP' }
   | { type: 'CURSOR_DOWN' }
@@ -59,10 +60,11 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, phase: 'scanning' };
     case 'SCAN_COMPLETE':
       return { ...state, phase: 'scan_complete', scanResult: action.result };
+    case 'PROCEED_TO_VERSION_SELECT':
+      return { ...state, phase: 'version_select' };
     case 'MC_VERSIONS_LOADED':
       return {
         ...state,
-        phase: 'version_select',
         mcVersions: action.versions,
         selectedMCVersionIndex: 0,
       };

@@ -94,8 +94,14 @@ export function ScanPhase({ state }: ScanPhaseProps) {
 
       {/* Footer hints */}
       <Box marginTop={1}>
-        <Text dimColor>{t.common.quitHint}</Text>
-        <Text dimColor>  {t.common.langToggle}</Text>
+        {state.phase === 'scan_complete' && scanResult && scanResult.totalFiles > 0 ? (
+          <Text dimColor>Press Enter to continue  {t.common.quitHint}  {t.common.langToggle}</Text>
+        ) : (
+          <>
+            <Text dimColor>{t.common.quitHint}</Text>
+            <Text dimColor>  {t.common.langToggle}</Text>
+          </>
+        )}
       </Box>
     </Box>
   );

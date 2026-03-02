@@ -21,6 +21,11 @@ export function App({ dir }: AppProps) {
     if (input === 'q' || input === 'Q') exit();
     if (input === 'l' || input === 'L') dispatch({ type: 'TOGGLE_LANGUAGE' });
 
+    // Proceed from scan summary to version select
+    if (state.phase === 'scan_complete' && key.return) {
+      dispatch({ type: 'PROCEED_TO_VERSION_SELECT' });
+    }
+
     // Version select navigation
     if (state.phase === 'version_select') {
       if (key.upArrow) dispatch({ type: 'CURSOR_UP' });
@@ -50,7 +55,7 @@ export function App({ dir }: AppProps) {
     const onScanComplete = (result: import('@upmods/core').ScanResult) => {
       dispatch({ type: 'SCAN_COMPLETE', result });
 
-      // After scan completes, load game versions
+      // Load game versions in the background (but don't transition yet)
       core.getGameVersions().then((versions) => {
         dispatch({ type: 'MC_VERSIONS_LOADED', versions });
       }).catch((err: unknown) => {
