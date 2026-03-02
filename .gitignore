@@ -5,7 +5,10 @@ build/
 .pnpm-store/
 *.log
 
-# AI & Tooling Metadata (Crucial)
+# TypeScript
+*.tsbuildinfo
+
+# AI & Tooling Metadata
 .claude/
 .specify/
 .cursor/
