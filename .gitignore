@@ -8,6 +8,9 @@ build/
 # TypeScript
 *.tsbuildinfo
 
+# Testing
+test-mods/
+
 # AI & Tooling Metadata
 .claude/
 .specify/
