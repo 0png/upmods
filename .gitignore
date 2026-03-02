@@ -1,0 +1,24 @@
+# Node.js
+node_modules/
+dist/
+build/
+.pnpm-store/
+*.log
+
+# AI & Tooling Metadata (Crucial)
+.claude/
+.specify/
+.cursor/
+.vscode/
+.idea/
+
+# Documentation & Planning (Keep Repo Clean)
+specs/
+plans/
+Charter.md
+Constitution.md
+Project_Spec.md
+
+# OS Specific
+.DS_Store
+Thumbs.db
