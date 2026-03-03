@@ -1,8 +1,10 @@
 import { EventEmitter } from 'node:events';
 import type { CoreEvents } from './events.js';
-import type { ScanResult, Mod, ModFile, MCVersion, ModUpdate } from './types.js';
+import type { ScanResult, Mod, ModFile, MCVersion, ModUpdate, DownloadResult } from './types.js';
 import { scanDirectory } from './scanner.js';
 import { ModrinthClient } from './modrinth.js';
+import { downloadFile } from './downloader.js';
+import pLimit from 'p-limit';
 
 // Declaration merging: overlay typed event methods on the class
 // This gives full type-safety for CoreEvents without runtime overhead
@@ -132,5 +134,50 @@ export class UpmodsCore extends EventEmitter {
       this.emit('error', error);
       throw error;
     }
+  }
+
+  /**
+   * Download all available updates to the output directory in parallel (max 5 concurrent).
+   * Emits download:start, download:progress, download:complete / download:error per update.
+   * Emits all:done after all downloads settle (success or failure).
+   * Does NOT throw on individual download failure — all downloads are attempted.
+   * @param updates Array of ModUpdate objects from checkUpdates
+   * @param outputDir Absolute path to the output directory (created if absent)
+   * @returns Array of DownloadResult in the same order as updates
+   */
+  async downloadUpdates(updates: ModUpdate[], outputDir: string): Promise<DownloadResult[]> {
+    const limit = pLimit(5);
+
+    const resultPromises = updates.map((update) =>
+      limit(async (): Promise<DownloadResult> => {
+        this.emit('download:start', update);
+
+        try {
+          const result = await downloadFile(
+            update,
+            outputDir,
+            (bytesReceived: number, totalBytes: number) => {
+              this.emit('download:progress', update, bytesReceived, totalBytes);
+            },
+          );
+
+          if (result.success) {
+            this.emit('download:complete', result);
+          } else {
+            this.emit('download:error', update, new Error(result.errorReason ?? 'Download failed'));
+          }
+
+          return result;
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          this.emit('download:error', update, error);
+          return { update, success: false, errorReason: error.message };
+        }
+      }),
+    );
+
+    const results = await Promise.all(resultPromises);
+    this.emit('all:done', results);
+    return results;
   }
 }

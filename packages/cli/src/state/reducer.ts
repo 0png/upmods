@@ -20,6 +20,8 @@ export interface AppState {
   updates: ModUpdate[];
   upToDate: Mod[];
   downloadResults: DownloadResult[];
+  /** Per-mod SHA-1 → { bytes, total } for live progress display */
+  downloadProgress: Record<string, { bytes: number; total: number }>;
   errorMessage: string | null;
   locale: 'en' | 'zh-TW';
 }
@@ -50,6 +52,7 @@ export const initialState: AppState = {
   updates: [],
   upToDate: [],
   downloadResults: [],
+  downloadProgress: {},
   errorMessage: null,
   locale: 'en',
 };
@@ -98,7 +101,13 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case 'START_DOWNLOAD':
       return { ...state, phase: 'downloading' };
     case 'DOWNLOAD_PROGRESS':
-      return state;
+      return {
+        ...state,
+        downloadProgress: {
+          ...state.downloadProgress,
+          [action.modName]: { bytes: action.bytes, total: action.total },
+        },
+      };
     case 'DOWNLOAD_RESULT':
       return {
         ...state,

@@ -1,4 +1,5 @@
 import React, { useReducer, useRef, useEffect } from 'react';
+import path from 'node:path';
 import { Text, useApp, useInput } from 'ink';
 import { LanguageProvider } from './i18n/use-language.js';
 import { reducer, initialState } from './state/reducer.js';
@@ -6,6 +7,8 @@ import { ErrorPhase } from './components/error-phase.js';
 import { ScanPhase } from './components/scan-phase.js';
 import { VersionSelectPhase } from './components/version-select-phase.js';
 import { CheckPhase } from './components/check-phase.js';
+import { DownloadPhase } from './components/download-phase.js';
+import { SummaryPhase } from './components/summary-phase.js';
 import { UpmodsCore } from '@upmods/core';
 
 interface AppProps {
@@ -107,6 +110,62 @@ export function App({ dir }: AppProps) {
     };
   }, [state.phase, state.selectedMCVersionIndex, state.mcVersions, state.scanResult]);
 
+  // Handle download phase
+  useEffect(() => {
+    const core = coreRef.current;
+    if (!core || state.phase !== 'downloading') return;
+
+    const outputDir = path.join(dir, 'mods-updated');
+
+    const onDownloadProgress = (
+      update: import('@upmods/core').ModUpdate,
+      bytesReceived: number,
+      totalBytes: number
+    ) => {
+      dispatch({
+        type: 'DOWNLOAD_PROGRESS',
+        modName: update.mod.file.sha1,
+        bytes: bytesReceived,
+        total: totalBytes,
+      });
+    };
+
+    const onDownloadComplete = (result: import('@upmods/core').DownloadResult) => {
+      dispatch({ type: 'DOWNLOAD_RESULT', result });
+    };
+
+    const onDownloadError = (update: import('@upmods/core').ModUpdate, error: Error) => {
+      const result: import('@upmods/core').DownloadResult = {
+        update,
+        success: false,
+        errorReason: error.message,
+      };
+      dispatch({ type: 'DOWNLOAD_RESULT', result });
+    };
+
+    const onAllDone = (_results: import('@upmods/core').DownloadResult[]) => {
+      dispatch({ type: 'DOWNLOAD_ALL_DONE' });
+    };
+
+    core.on('download:progress', onDownloadProgress);
+    core.on('download:complete', onDownloadComplete);
+    core.on('download:error', onDownloadError);
+    core.on('all:done', onAllDone);
+
+    core.downloadUpdates(state.updates, outputDir).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      dispatch({ type: 'ERROR', message });
+    });
+
+    return () => {
+      core.off('download:progress', onDownloadProgress);
+      core.off('download:complete', onDownloadComplete);
+      core.off('download:error', onDownloadError);
+      core.off('all:done', onAllDone);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.phase]);
+
   const renderPhase = () => {
     if (state.phase === 'error') {
       return <ErrorPhase state={state} />;
@@ -128,7 +187,23 @@ export function App({ dir }: AppProps) {
     if (state.phase === 'check_complete') {
       return <CheckPhase updates={state.updates} upToDate={state.upToDate} />;
     }
-    // Future phases (US3-US4) — placeholder
+    if (state.phase === 'downloading') {
+      return (
+        <DownloadPhase
+          updates={state.updates}
+          downloadResults={state.downloadResults}
+          downloadProgress={state.downloadProgress}
+        />
+      );
+    }
+    if (state.phase === 'done') {
+      return (
+        <SummaryPhase
+          downloadResults={state.downloadResults}
+          outputDir={path.join(dir, 'mods-updated')}
+        />
+      );
+    }
     return <Text>Loading…</Text>;
   };
 

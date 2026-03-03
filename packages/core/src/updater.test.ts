@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UpmodsCore } from './updater.js';
-import type { ModFile, Mod, ScanResult, MCVersion, ModUpdate } from './types.js';
+import type { ModFile, Mod, ScanResult, MCVersion, ModUpdate, DownloadResult } from './types.js';
 
-// Mock the scanner and modrinth modules
+// Mock the scanner, modrinth, and downloader modules
 vi.mock('./scanner.js', () => ({
   scanDirectory: vi.fn(),
 }));
@@ -15,12 +15,17 @@ vi.mock('./modrinth.js', () => ({
   })),
 }));
 
+vi.mock('./downloader.js', () => ({
+  downloadFile: vi.fn(),
+}));
+
 describe('UpmodsCore', () => {
   let core: UpmodsCore;
   let mockScanDirectory: ReturnType<typeof vi.fn>;
   let mockIdentifyMods: ReturnType<typeof vi.fn>;
   let mockGetGameVersions: ReturnType<typeof vi.fn>;
   let mockCheckUpdates: ReturnType<typeof vi.fn>;
+  let mockDownloadFile: ReturnType<typeof vi.fn>;
 
   const makeModFile = (filename: string, sha1: string): ModFile => ({
     path: `/mods/${filename}`,
@@ -40,11 +45,26 @@ describe('UpmodsCore', () => {
     supportedMcVersions: ['1.20.1'],
   });
 
+  const makeUpdate = (sha1: string): ModUpdate => {
+    const file = makeModFile(`${sha1}.jar`, sha1);
+    return {
+      mod: makeMod(file),
+      latestVersionId: `new-ver-${sha1}`,
+      latestVersionNumber: '2.0.0',
+      downloadUrl: `https://example.com/${sha1}.jar`,
+      downloadFilename: `mod-${sha1}-2.0.0.jar`,
+      downloadSizeBytes: 2048,
+      status: 'pending',
+    };
+  };
+
   beforeEach(async () => {
     vi.clearAllMocks();
     const { scanDirectory } = await import('./scanner.js');
     const { ModrinthClient } = await import('./modrinth.js');
+    const { downloadFile } = await import('./downloader.js');
     mockScanDirectory = scanDirectory as ReturnType<typeof vi.fn>;
+    mockDownloadFile = downloadFile as ReturnType<typeof vi.fn>;
     const MockClient = ModrinthClient as ReturnType<typeof vi.fn>;
     core = new UpmodsCore();
     // Access the private modrinth instance via the constructor mock
@@ -268,6 +288,134 @@ describe('UpmodsCore', () => {
       await expect(core.checkUpdates([mod], '1.21.1')).rejects.toThrow('API error');
       expect(errorEvents).toHaveLength(1);
       expect(errorEvents[0]).toBe(testError);
+    });
+  });
+
+  describe('downloadUpdates', () => {
+    it('emits download:start for each update', async () => {
+      const update1 = makeUpdate('sha1aaa');
+      const update2 = makeUpdate('sha2bbb');
+
+      const successResult = (u: ModUpdate): DownloadResult => ({
+        update: u,
+        success: true,
+        outputPath: `/output/${u.downloadFilename}`,
+      });
+
+      mockDownloadFile
+        .mockResolvedValueOnce(successResult(update1))
+        .mockResolvedValueOnce(successResult(update2));
+
+      const startEvents: ModUpdate[] = [];
+      core.on('download:start', (u: ModUpdate) => startEvents.push(u));
+
+      await core.downloadUpdates([update1, update2], '/output');
+
+      expect(startEvents).toHaveLength(2);
+      expect(startEvents).toContain(update1);
+      expect(startEvents).toContain(update2);
+    });
+
+    it('continues remaining downloads when one fails', async () => {
+      const update1 = makeUpdate('sha1fail');
+      const update2 = makeUpdate('sha2ok');
+      const update3 = makeUpdate('sha3ok');
+
+      mockDownloadFile
+        .mockResolvedValueOnce({ update: update1, success: false, errorReason: 'Network error' })
+        .mockResolvedValueOnce({ update: update2, success: true, outputPath: '/output/u2.jar' })
+        .mockResolvedValueOnce({ update: update3, success: true, outputPath: '/output/u3.jar' });
+
+      const results = await core.downloadUpdates([update1, update2, update3], '/output');
+
+      expect(results).toHaveLength(3);
+      expect(mockDownloadFile).toHaveBeenCalledTimes(3);
+      expect(results[0].success).toBe(false);
+      expect(results[1].success).toBe(true);
+      expect(results[2].success).toBe(true);
+    });
+
+    it('emits all:done after all downloads settle', async () => {
+      const update1 = makeUpdate('sha1aaa');
+      const update2 = makeUpdate('sha2bbb');
+
+      const r1: DownloadResult = { update: update1, success: true, outputPath: '/out/u1.jar' };
+      const r2: DownloadResult = { update: update2, success: false, errorReason: 'fail' };
+
+      mockDownloadFile
+        .mockResolvedValueOnce(r1)
+        .mockResolvedValueOnce(r2);
+
+      const allDoneEvents: DownloadResult[][] = [];
+      core.on('all:done', (results: DownloadResult[]) => allDoneEvents.push(results));
+
+      const results = await core.downloadUpdates([update1, update2], '/output');
+
+      expect(allDoneEvents).toHaveLength(1);
+      expect(allDoneEvents[0]).toEqual(results);
+    });
+
+    it('emits download:complete for successful downloads', async () => {
+      const update = makeUpdate('sha1ok');
+      const result: DownloadResult = { update, success: true, outputPath: '/out/file.jar' };
+
+      mockDownloadFile.mockResolvedValue(result);
+
+      const completeEvents: DownloadResult[] = [];
+      core.on('download:complete', (r: DownloadResult) => completeEvents.push(r));
+
+      await core.downloadUpdates([update], '/output');
+
+      expect(completeEvents).toHaveLength(1);
+      expect(completeEvents[0]).toBe(result);
+    });
+
+    it('emits download:error for failed downloads', async () => {
+      const update = makeUpdate('sha1fail');
+      const result: DownloadResult = { update, success: false, errorReason: 'HTTP 500' };
+
+      mockDownloadFile.mockResolvedValue(result);
+
+      const errorEvents: Array<{ update: ModUpdate; error: Error }> = [];
+      core.on('download:error', (u: ModUpdate, e: Error) => errorEvents.push({ update: u, error: e }));
+
+      await core.downloadUpdates([update], '/output');
+
+      expect(errorEvents).toHaveLength(1);
+      expect(errorEvents[0].update).toBe(update);
+      expect(errorEvents[0].error.message).toContain('HTTP 500');
+    });
+
+    it('respects p-limit(5) concurrency cap', async () => {
+      let concurrent = 0;
+      let maxConcurrent = 0;
+
+      mockDownloadFile.mockImplementation((update: ModUpdate): Promise<DownloadResult> =>
+        new Promise((resolve) => {
+          concurrent++;
+          maxConcurrent = Math.max(maxConcurrent, concurrent);
+          setImmediate(() => {
+            concurrent--;
+            resolve({ update, success: true, outputPath: `/out/${update.downloadFilename}` });
+          });
+        }),
+      );
+
+      const updates = Array.from({ length: 7 }, (_, i) => makeUpdate(`sha${i}`));
+      await core.downloadUpdates(updates, '/output');
+
+      expect(maxConcurrent).toBeLessThanOrEqual(5);
+      expect(mockDownloadFile).toHaveBeenCalledTimes(7);
+    });
+
+    it('returns empty array for empty updates input', async () => {
+      const results = await core.downloadUpdates([], '/output');
+
+      expect(results).toEqual([]);
+      expect(mockDownloadFile).not.toHaveBeenCalled();
+
+      // all:done should still be emitted
+      // (we can test this separately, but here just verify the return value)
     });
   });
 });
