@@ -76,8 +76,6 @@ export class ModrinthClient {
       const file = versionData.files.find((f) => f.hashes.sha1 === sha1);
       if (!file) continue;
 
-      // We need to fetch project details to get the display name
-      // For now, use version name as display name (will be enhanced in future)
       result.set(sha1, {
         file: {
           path: '', // Will be filled by caller
@@ -86,13 +84,37 @@ export class ModrinthClient {
           sizeBytes: file.size,
         },
         projectId: versionData.project_id,
-        projectSlug: '', // Will fetch separately if needed
-        displayName: versionData.name,
+        projectSlug: '',
+        displayName: versionData.name, // Temporary — replaced by project title below
         installedVersionId: versionData.id,
         installedVersionNumber: versionData.version_number,
         loaders: versionData.loaders,
         supportedMcVersions: versionData.game_versions,
       });
+    }
+
+    // Batch-fetch project titles so displayName shows the mod name, not the version name.
+    // GET /v2/projects?ids=["id1","id2",...] returns all projects in one request.
+    const projectIds = [...new Set([...result.values()].map((m) => m.projectId))];
+    if (projectIds.length > 0) {
+      const projectsResponse = await request(
+        `${this.baseUrl}/projects?ids=${encodeURIComponent(JSON.stringify(projectIds))}`,
+        { headers: { 'User-Agent': this.userAgent } },
+      );
+      if (projectsResponse.statusCode === 200) {
+        const projects = (await projectsResponse.body.json()) as ModrinthProjectResponse[];
+        const projectMap = new Map(projects.map((p) => [p.id, p]));
+        for (const [sha1, mod] of result.entries()) {
+          const project = projectMap.get(mod.projectId);
+          if (project) {
+            result.set(sha1, {
+              ...mod,
+              displayName: project.title,
+              projectSlug: project.slug,
+            });
+          }
+        }
+      }
     }
 
     return result;

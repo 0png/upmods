@@ -20,37 +20,68 @@ describe('ModrinthClient', () => {
   });
 
   describe('identifyMods', () => {
-    it('maps response to Mod objects with correct fields', async () => {
+    it('uses project title as displayName, not version name', async () => {
       const testSha1 = 'abc123def456';
-      const mockResponse: Record<string, ModrinthVersionResponse> = {
+      const mockVersionResponse: Record<string, ModrinthVersionResponse> = {
         [testSha1]: {
           id: 'version-id-1',
           project_id: 'project-id-1',
-          name: 'Sodium 0.5.8',
-          version_number: '0.5.8+mc1.20.1',
+          name: '0.6.13+mc1.21.5', // Version name — should NOT be displayName
+          version_number: '0.6.13+mc1.21.5',
           loaders: ['fabric'],
-          game_versions: ['1.20.1', '1.20.2'],
-          files: [
-            {
-              url: 'https://cdn.modrinth.com/data/project/versions/file.jar',
-              filename: 'sodium-0.5.8.jar',
-              primary: true,
-              size: 1024000,
-              hashes: {
-                sha1: testSha1,
-                sha512: 'long-sha512-hash',
-              },
-            },
-          ],
+          game_versions: ['1.21.5'],
+          files: [{
+            url: 'https://cdn.modrinth.com/data/project/versions/sodium.jar',
+            filename: 'sodium-0.6.13.jar',
+            primary: true,
+            size: 1024000,
+            hashes: { sha1: testSha1, sha512: 'long-hash' },
+          }],
         },
       };
 
-      mockRequest.mockResolvedValue({
-        statusCode: 200,
-        body: {
-          json: async () => mockResponse,
+      // First call: version_files, second call: projects batch
+      mockRequest
+        .mockResolvedValueOnce({
+          statusCode: 200,
+          body: { json: async () => mockVersionResponse },
+        })
+        .mockResolvedValueOnce({
+          statusCode: 200,
+          body: {
+            json: async () => [{ id: 'project-id-1', slug: 'sodium', title: 'Sodium' }],
+          },
+        });
+
+      const result = await client.identifyMods([testSha1]);
+
+      expect(result.get(testSha1)?.displayName).toBe('Sodium');
+      expect(result.get(testSha1)?.projectSlug).toBe('sodium');
+    });
+
+    it('maps response to Mod objects with correct fields', async () => {
+      const testSha1 = 'abc123def456';
+      const mockVersionResponse: Record<string, ModrinthVersionResponse> = {
+        [testSha1]: {
+          id: 'version-id-1',
+          project_id: 'project-id-1',
+          name: 'Sodium 0.5.8', // version name — overridden by project title
+          version_number: '0.5.8+mc1.20.1',
+          loaders: ['fabric'],
+          game_versions: ['1.20.1', '1.20.2'],
+          files: [{
+            url: 'https://cdn.modrinth.com/data/project/versions/file.jar',
+            filename: 'sodium-0.5.8.jar',
+            primary: true,
+            size: 1024000,
+            hashes: { sha1: testSha1, sha512: 'long-sha512-hash' },
+          }],
         },
-      });
+      };
+
+      mockRequest
+        .mockResolvedValueOnce({ statusCode: 200, body: { json: async () => mockVersionResponse } })
+        .mockResolvedValueOnce({ statusCode: 200, body: { json: async () => [{ id: 'project-id-1', slug: 'sodium', title: 'Sodium' }] } });
 
       const result = await client.identifyMods([testSha1]);
 
@@ -58,7 +89,8 @@ describe('ModrinthClient', () => {
       const mod = result.get(testSha1);
       expect(mod).toBeDefined();
       expect(mod?.projectId).toBe('project-id-1');
-      expect(mod?.displayName).toBe('Sodium 0.5.8');
+      expect(mod?.projectSlug).toBe('sodium');
+      expect(mod?.displayName).toBe('Sodium');
       expect(mod?.installedVersionId).toBe('version-id-1');
       expect(mod?.installedVersionNumber).toBe('0.5.8+mc1.20.1');
       expect(mod?.loaders).toEqual(['fabric']);
@@ -69,30 +101,33 @@ describe('ModrinthClient', () => {
       const presentSha1 = 'present123';
       const absentSha1 = 'absent456';
 
-      mockRequest.mockResolvedValue({
-        statusCode: 200,
-        body: {
-          json: async () => ({
-            [presentSha1]: {
-              id: 'v1',
-              project_id: 'p1',
-              name: 'Mod 1',
-              version_number: '1.0.0',
-              loaders: ['fabric'],
-              game_versions: ['1.20.1'],
-              files: [
-                {
+      mockRequest
+        .mockResolvedValueOnce({
+          statusCode: 200,
+          body: {
+            json: async () => ({
+              [presentSha1]: {
+                id: 'v1',
+                project_id: 'p1',
+                name: 'Mod 1',
+                version_number: '1.0.0',
+                loaders: ['fabric'],
+                game_versions: ['1.20.1'],
+                files: [{
                   url: 'https://example.com/file.jar',
                   filename: 'mod.jar',
                   primary: true,
                   size: 1000,
                   hashes: { sha1: presentSha1, sha512: 'hash' },
-                },
-              ],
-            },
-          }),
-        },
-      });
+                }],
+              },
+            }),
+          },
+        })
+        .mockResolvedValueOnce({
+          statusCode: 200,
+          body: { json: async () => [{ id: 'p1', slug: 'mod-1', title: 'Mod 1' }] },
+        });
 
       const result = await client.identifyMods([presentSha1, absentSha1]);
 
