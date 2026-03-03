@@ -365,5 +365,106 @@ describe('ModrinthClient', () => {
       expect(callBody.loaders).toContain('fabric');
       expect(callBody.loaders).toContain('forge');
     });
+
+    it('treats same version ID as up to date (not a real update)', async () => {
+      const mod = createMockMod('abc123');
+      // API returns the same version the mod already has installed
+      const mockResponse: Record<string, ModrinthVersionResponse> = {
+        abc123: {
+          id: `version-abc123`, // Same as installedVersionId
+          project_id: 'project-abc123',
+          name: 'Mod abc123 1.0',
+          version_number: '1.0.0',
+          loaders: ['fabric'],
+          game_versions: ['1.21.1'],
+          files: [
+            {
+              url: 'https://cdn.modrinth.com/data/project/versions/file.jar',
+              filename: 'mod-1.0.0.jar',
+              primary: true,
+              size: 1000,
+              hashes: { sha1: 'abc123', sha512: 'hash' },
+            },
+          ],
+        },
+      };
+
+      mockRequest.mockResolvedValue({
+        statusCode: 200,
+        body: { json: async () => mockResponse },
+      });
+
+      const result = await client.checkUpdates([mod], '1.21.1');
+
+      expect(result.updates.length).toBe(0);
+      expect(result.upToDate.length).toBe(1);
+      expect(result.upToDate[0]).toBe(mod);
+    });
+
+    it('rejects update with wrong loader (e.g. neoforge returned for fabric mod)', async () => {
+      const mod = createMockMod('abc123', 'fabric');
+      const mockResponse: Record<string, ModrinthVersionResponse> = {
+        abc123: {
+          id: 'new-version-id',
+          project_id: 'project-abc123',
+          name: 'Mod abc123 2.0 NeoForge',
+          version_number: '2.0.0-neoforge',
+          loaders: ['neoforge'], // Wrong loader
+          game_versions: ['1.21.1'],
+          files: [
+            {
+              url: 'https://cdn.modrinth.com/data/project/versions/file.jar',
+              filename: 'mod-2.0.0-neoforge.jar',
+              primary: true,
+              size: 1000,
+              hashes: { sha1: 'new-sha1', sha512: 'hash' },
+            },
+          ],
+        },
+      };
+
+      mockRequest.mockResolvedValue({
+        statusCode: 200,
+        body: { json: async () => mockResponse },
+      });
+
+      const result = await client.checkUpdates([mod], '1.21.1');
+
+      expect(result.updates.length).toBe(0);
+      expect(result.upToDate.length).toBe(1);
+    });
+
+    it('rejects update for wrong MC version (e.g. 1.21.8 returned when 1.21.6 requested)', async () => {
+      const mod = createMockMod('abc123', 'fabric');
+      const mockResponse: Record<string, ModrinthVersionResponse> = {
+        abc123: {
+          id: 'new-version-id',
+          project_id: 'project-abc123',
+          name: 'Mod abc123 2.0',
+          version_number: '2.0.0+mc1.21.8',
+          loaders: ['fabric'],
+          game_versions: ['1.21.8'], // Does not include the requested 1.21.6
+          files: [
+            {
+              url: 'https://cdn.modrinth.com/data/project/versions/file.jar',
+              filename: 'mod-2.0.0.jar',
+              primary: true,
+              size: 1000,
+              hashes: { sha1: 'new-sha1', sha512: 'hash' },
+            },
+          ],
+        },
+      };
+
+      mockRequest.mockResolvedValue({
+        statusCode: 200,
+        body: { json: async () => mockResponse },
+      });
+
+      const result = await client.checkUpdates([mod], '1.21.6');
+
+      expect(result.updates.length).toBe(0);
+      expect(result.upToDate.length).toBe(1);
+    });
   });
 });

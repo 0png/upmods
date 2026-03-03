@@ -184,24 +184,34 @@ export class ModrinthClient {
       const updateData = data[mod.file.sha1];
 
       if (updateData) {
-        // Find the primary file
-        const primaryFile = updateData.files.find((f) => f.primary) || updateData.files[0];
+        // Only treat as a real update if:
+        // 1. It's a different version (not already the latest)
+        // 2. The returned version supports at least one loader the mod uses
+        // 3. The returned version actually supports the requested MC version
+        const isNewer = updateData.id !== mod.installedVersionId;
+        const loaderOk = updateData.loaders.some((l) => mod.loaders.includes(l));
+        const versionOk = updateData.game_versions.includes(mcVersion);
 
-        if (primaryFile) {
-          updates.push({
-            mod,
-            latestVersionId: updateData.id,
-            latestVersionNumber: updateData.version_number,
-            downloadUrl: primaryFile.url,
-            downloadFilename: primaryFile.filename,
-            downloadSizeBytes: primaryFile.size,
-            status: 'pending',
-          });
+        if (isNewer && loaderOk && versionOk) {
+          // Find the primary file
+          const primaryFile = updateData.files.find((f) => f.primary) || updateData.files[0];
+
+          if (primaryFile) {
+            updates.push({
+              mod,
+              latestVersionId: updateData.id,
+              latestVersionNumber: updateData.version_number,
+              downloadUrl: primaryFile.url,
+              downloadFilename: primaryFile.filename,
+              downloadSizeBytes: primaryFile.size,
+              status: 'pending',
+            });
+            continue;
+          }
         }
-      } else {
-        // No update available for this mod
-        upToDate.push(mod);
       }
+
+      upToDate.push(mod);
     }
 
     return { updates, upToDate };
