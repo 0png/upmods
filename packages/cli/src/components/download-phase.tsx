@@ -99,7 +99,7 @@ export function DownloadPhase({ updates, downloadResults, downloadProgress }: Do
                 {formatBytes(progress.bytes)} / {formatBytes(progress.total)}
               </Text>
             ) : (
-              <Text dimColor>  waiting…</Text>
+              <Text dimColor>  {t.download.waiting}</Text>
             )}
           </Box>
         );

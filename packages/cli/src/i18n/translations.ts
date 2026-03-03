@@ -13,6 +13,7 @@ export interface Translations {
     unidentifiedLabel: string;
     emptyDir: string;
     emptyDirHint: string;
+    continueHint: string;
   };
   versionSelect: {
     title: string;
@@ -36,6 +37,7 @@ export interface Translations {
     title: string;
     done: string;
     failed: string;
+    waiting: string;
   };
   summary: {
     title: string;
@@ -46,6 +48,7 @@ export interface Translations {
   error: {
     prefix: string;
     quitHint: string;
+    unknownError: string;
   };
 }
 
@@ -64,6 +67,7 @@ export const en: Translations = {
     unidentifiedLabel: '(unidentified)',
     emptyDir: 'No mod files found in:',
     emptyDirHint: 'Make sure you are in a Minecraft mods directory.',
+    continueHint: 'Press Enter to continue',
   },
   versionSelect: {
     title: 'Select Minecraft version to check updates for',
@@ -87,6 +91,7 @@ export const en: Translations = {
     title: 'Downloading updates…',
     done: 'done',
     failed: 'failed',
+    waiting: 'waiting…',
   },
   summary: {
     title: '{count} mods updated',
@@ -97,57 +102,61 @@ export const en: Translations = {
   error: {
     prefix: '✘',
     quitHint: 'Press Q to quit',
+    unknownError: 'An unexpected error occurred',
   },
 };
 
-// zh-TW stub — all keys present, strings filled in T042 (US4)
+// zh-TW translations — filled in T042 (US4)
 export const zhTW: Translations = {
   common: {
-    quitHint: '',
-    langToggle: '',
+    quitHint: '按 Q 結束',
+    langToggle: '按 L 切換語言',
   },
   scan: {
-    title: '',
-    scanning: '',
-    identifying: '',
-    progress: '',
-    identifiedSection: '',
-    unidentifiedSection: '',
-    unidentifiedLabel: '',
-    emptyDir: '',
-    emptyDirHint: '',
+    title: '正在掃描模組目錄…',
+    scanning: '掃描中…',
+    identifying: '識別模組中…',
+    progress: '{done} / {total} 已掃描',
+    identifiedSection: '已識別的模組',
+    unidentifiedSection: '未識別的檔案',
+    unidentifiedLabel: '（未識別）',
+    emptyDir: '找不到模組檔案於：',
+    emptyDirHint: '請確認您位於 Minecraft 模組目錄中。',
+    continueHint: '按 Enter 繼續',
   },
   versionSelect: {
-    title: '',
-    hint: '',
+    title: '選擇要檢查更新的 Minecraft 版本',
+    hint: '↑↓ 導覽  Enter 確認  Q 結束  L 切換語言',
   },
   check: {
-    title: '',
-    modName: '',
-    installed: '',
-    available: '',
-    status: '',
-    upToDate: '',
-    updateAvailable: '',
-    notAvailable: '',
-    allUpToDate: '',
-    updatesFound: '',
-    hintWithUpdates: '',
-    hintNoUpdates: '',
+    title: '更新狀況',
+    modName: '模組',
+    installed: '已安裝',
+    available: '可用版本',
+    status: '狀態',
+    upToDate: '已是最新',
+    updateAvailable: '有更新可用',
+    notAvailable: '此版本不支援',
+    allUpToDate: '所有模組均為最新版本。',
+    updatesFound: '{count} 個更新可用',
+    hintWithUpdates: '按 U 下載更新  Q 結束  L 切換語言',
+    hintNoUpdates: '按 Q 結束  L 切換語言',
   },
   download: {
-    title: '',
-    done: '',
-    failed: '',
+    title: '正在下載更新…',
+    done: '完成',
+    failed: '失敗',
+    waiting: '等待中…',
   },
   summary: {
-    title: '',
-    outputDir: '',
-    quitHint: '',
-    failedSection: '',
+    title: '已更新 {count} 個模組',
+    outputDir: '儲存至：',
+    quitHint: '按 Q 結束',
+    failedSection: '下載失敗',
   },
   error: {
-    prefix: '',
-    quitHint: '',
+    prefix: '✘',
+    quitHint: '按 Q 結束',
+    unknownError: '發生未預期的錯誤',
   },
 };

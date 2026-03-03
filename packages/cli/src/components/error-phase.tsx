@@ -12,9 +12,9 @@ export function ErrorPhase({ state }: ErrorPhaseProps) {
   return (
     <Box flexDirection="column" paddingY={1}>
       <Text color="red">
-        {t.error.prefix || '✘'}  {state.errorMessage ?? 'An unexpected error occurred'}
+        {t.error.prefix}  {state.errorMessage ?? t.error.unknownError}
       </Text>
-      <Text dimColor>{t.error.quitHint || 'Press Q to quit'}</Text>
+      <Text dimColor>{t.error.quitHint}</Text>
     </Box>
   );
 }
