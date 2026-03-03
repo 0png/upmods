@@ -346,24 +346,68 @@ describe('ModrinthClient', () => {
       );
     });
 
-    it('extracts unique loaders from all mods', async () => {
+    it('sends only the primary (most common) loader in request, not all loaders', async () => {
       const mod1 = createMockMod('abc123', 'fabric');
-      const mod2 = createMockMod('def456', 'forge');
-      const mod3 = createMockMod('ghi789', 'fabric'); // Duplicate loader
+      const mod2 = createMockMod('def456', 'fabric');
+      // One dual-loader mod should NOT cause neoforge to be sent
+      const mod3 = { ...createMockMod('ghi789', 'fabric'), loaders: ['fabric', 'neoforge'] };
 
       mockRequest.mockResolvedValue({
         statusCode: 200,
-        body: {
-          json: async () => ({}),
-        },
+        body: { json: async () => ({}) },
       });
 
-      await client.checkUpdates([mod1, mod2, mod3], '1.21.1');
+      await client.checkUpdates([mod1, mod2, mod3], '1.21.6');
 
       const callBody = JSON.parse(mockRequest.mock.calls[0][1].body);
-      expect(callBody.loaders).toHaveLength(2);
-      expect(callBody.loaders).toContain('fabric');
-      expect(callBody.loaders).toContain('forge');
+      // Primary loader is 'fabric' (appears in all 3 mods)
+      expect(callBody.loaders).toEqual(['fabric']);
+    });
+
+    it('rejects neoforge-only update for a dual-loader installed mod (fabric is primary)', async () => {
+      // WorldEdit scenario: installed jar supports ['fabric','neoforge']
+      // but the update returned by API is neoforge-only
+      const dualLoaderMod: Mod = {
+        file: { path: '/mods/worldedit.jar', filename: 'worldedit.jar', sha1: 'we123', sizeBytes: 1000 },
+        projectId: 'worldedit',
+        projectSlug: 'worldedit',
+        displayName: 'WorldEdit',
+        installedVersionId: 'we-old-id',
+        installedVersionNumber: '7.3.12',
+        loaders: ['fabric', 'neoforge'],
+        supportedMcVersions: ['1.21.5'],
+      };
+      const fabricMod = createMockMod('fab456', 'fabric');
+
+      // API returns neoforge-only update for worldedit (because neoforge was in request)
+      // Primary loader detection: fabric appears in both mods → primaryLoader = 'fabric'
+      const mockResponse: Record<string, ModrinthVersionResponse> = {
+        we123: {
+          id: 'we-new-id',
+          project_id: 'worldedit',
+          name: 'WorldEdit 7.4.0',
+          version_number: '7.4.0-neoforge',
+          loaders: ['neoforge'], // NeoForge only — should be rejected
+          game_versions: ['1.21.6'],
+          files: [{
+            url: 'https://cdn.modrinth.com/data/worldedit/file.jar',
+            filename: 'worldedit-7.4.0-neoforge.jar',
+            primary: true, size: 2000,
+            hashes: { sha1: 'we-new-sha1', sha512: 'hash' },
+          }],
+        },
+      };
+
+      mockRequest.mockResolvedValue({
+        statusCode: 200,
+        body: { json: async () => mockResponse },
+      });
+
+      const result = await client.checkUpdates([dualLoaderMod, fabricMod], '1.21.6');
+
+      // worldedit neoforge-only update must be rejected (primary loader is fabric)
+      expect(result.updates.length).toBe(0);
+      expect(result.upToDate.length).toBe(2);
     });
 
     it('treats same version ID as up to date (not a real update)', async () => {

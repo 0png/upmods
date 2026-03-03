@@ -150,13 +150,20 @@ export class ModrinthClient {
       return { updates: [], upToDate: [] };
     }
 
-    // Extract unique loaders from all mods
-    const loaderSet = new Set<string>();
+    // Detect the dominant loader across all installed mods.
+    // Sending ALL unique loaders (e.g. ['fabric','neoforge'] from one dual-loader
+    // jar) causes Modrinth to return NeoForge-specific builds for other mods.
+    // Using only the most common loader keeps results on the user's actual loader.
+    const loaderCount = new Map<string, number>();
     for (const mod of mods) {
       for (const loader of mod.loaders) {
-        loaderSet.add(loader);
+        loaderCount.set(loader, (loaderCount.get(loader) ?? 0) + 1);
       }
     }
+    const primaryLoader =
+      loaderCount.size > 0
+        ? [...loaderCount.entries()].sort((a, b) => b[1] - a[1])[0]![0]
+        : null;
 
     const response = await request(`${this.baseUrl}/version_files/update`, {
       method: 'POST',
@@ -167,7 +174,7 @@ export class ModrinthClient {
       body: JSON.stringify({
         hashes: mods.map((m) => m.file.sha1),
         algorithm: 'sha1',
-        loaders: Array.from(loaderSet),
+        loaders: primaryLoader ? [primaryLoader] : [],
         game_versions: [mcVersion],
       }),
     });
@@ -186,10 +193,14 @@ export class ModrinthClient {
       if (updateData) {
         // Only treat as a real update if:
         // 1. It's a different version (not already the latest)
-        // 2. The returned version supports at least one loader the mod uses
+        // 2. The returned version supports the user's primary loader
+        //    (per-mod intersection is wrong for dual-loader mods — a mod with
+        //     ['fabric','neoforge'] would accept a neoforge-only update)
         // 3. The returned version actually supports the requested MC version
         const isNewer = updateData.id !== mod.installedVersionId;
-        const loaderOk = updateData.loaders.some((l) => mod.loaders.includes(l));
+        const loaderOk = primaryLoader
+          ? updateData.loaders.includes(primaryLoader)
+          : updateData.loaders.some((l) => mod.loaders.includes(l));
         const versionOk = updateData.game_versions.includes(mcVersion);
 
         if (isNewer && loaderOk && versionOk) {
