@@ -69,7 +69,7 @@ export function ScanPhase({ state }: ScanPhaseProps) {
         <Box flexDirection="column" marginTop={1}>
           <Text bold underline>{t.scan.identifiedSection}</Text>
           {scanResult.identified.map((mod) => (
-            <Box key={mod.file.sha1}>
+            <Box key={mod.file.path}>
               <Text color="green">  ✓ </Text>
               <Text>{mod.displayName}</Text>
               <Text dimColor>  {mod.installedVersionNumber}</Text>
@@ -83,7 +83,7 @@ export function ScanPhase({ state }: ScanPhaseProps) {
         <Box flexDirection="column" marginTop={1}>
           <Text bold underline>{t.scan.unidentifiedSection}</Text>
           {scanResult.unidentified.map((file) => (
-            <Box key={file.sha1}>
+            <Box key={file.path}>
               <Text color="yellow">  ? </Text>
               <Text>{file.filename}</Text>
               <Text dimColor>  {t.scan.unidentifiedLabel}</Text>

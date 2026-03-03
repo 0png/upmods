@@ -163,7 +163,6 @@ export function App({ dir }: AppProps) {
       core.off('download:error', onDownloadError);
       core.off('all:done', onAllDone);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.phase]);
 
   const renderPhase = () => {
