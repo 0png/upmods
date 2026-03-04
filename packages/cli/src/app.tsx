@@ -1,6 +1,6 @@
-import React, { useReducer, useRef, useEffect } from 'react';
+import React, { useReducer, useRef, useEffect, useState } from 'react';
 import path from 'node:path';
-import { Box, Text, useApp, useInput } from 'ink';
+import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import { LanguageProvider } from './i18n/use-language.js';
 import { reducer, initialState } from './state/reducer.js';
 import { ErrorPhase } from './components/error-phase.js';
@@ -24,6 +24,21 @@ export function App({ dir }: AppProps) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const { exit } = useApp();
   const coreRef = useRef<UpmodsCore | null>(null);
+  const { stdout } = useStdout();
+
+  // Track terminal size and re-render on resize (fixes ghosting + resize corruption)
+  const getTTY = () => (stdout as { columns?: number; rows?: number });
+  const [termCols, setTermCols] = useState(() => getTTY().columns ?? 80);
+  const [termRows, setTermRows] = useState(() => getTTY().rows ?? 24);
+
+  useEffect(() => {
+    const onResize = () => {
+      setTermCols(getTTY().columns ?? 80);
+      setTermRows(getTTY().rows ?? 24);
+    };
+    stdout.on('resize', onResize);
+    return () => { stdout.off('resize', onResize); };
+  }, [stdout]);
 
   useInput((input, key) => {
     if (input === 'q' || input === 'Q') exit();
@@ -390,14 +405,33 @@ export function App({ dir }: AppProps) {
     return <Text>Loading…</Text>;
   };
 
+  // Too-narrow guard: prevent entire UI from collapsing below minimum width
+  if (termCols < 80) {
+    return (
+      <Box flexDirection="column" height={termRows}>
+        <Box justifyContent="center" paddingY={0}>
+          <Text bold color="cyan">UPMODS</Text>
+        </Box>
+        <Box flexGrow={1} flexDirection="column" justifyContent="center" alignItems="center">
+          <Text color="red">Terminal too narrow — please resize to ≥ 80 columns.</Text>
+          <Text dimColor>Current width: {termCols} cols · Minimum: 80 cols</Text>
+        </Box>
+        <ProgressFooter phase={state.phase} />
+      </Box>
+    );
+  }
+
   return (
-    <Box flexDirection="column">
+    // height={termRows} ensures every render occupies the full terminal height,
+    // so Ink's line-erasure algorithm always clears the entire previous frame.
+    // This eliminates "ghosting" when phases render fewer lines than the previous phase.
+    <Box flexDirection="column" height={termRows}>
       <Banner />
       <LanguageProvider
         locale={state.locale}
         toggleLanguage={() => dispatch({ type: 'TOGGLE_LANGUAGE' })}
       >
-        <Box flexGrow={1}>
+        <Box flexGrow={1} flexDirection="column">
           {renderPhaseContent()}
         </Box>
       </LanguageProvider>

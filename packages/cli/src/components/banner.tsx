@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 
 const BANNER_LINES = [
   ' _   _ ____  __  __  ___  ____  ____',
@@ -10,6 +10,18 @@ const BANNER_LINES = [
 ];
 
 export default function Banner() {
+  const { stdout } = useStdout();
+  const cols = (stdout as { columns?: number } | undefined)?.columns ?? 80;
+
+  // Compact single-line banner for narrow terminals
+  if (cols < 80) {
+    return (
+      <Box justifyContent="center" paddingY={0}>
+        <Text bold color="cyan">UPMODS</Text>
+      </Box>
+    );
+  }
+
   return (
     <Box flexDirection="column" alignItems="center">
       {BANNER_LINES.map((line, i) => (
@@ -20,3 +32,4 @@ export default function Banner() {
     </Box>
   );
 }
+
