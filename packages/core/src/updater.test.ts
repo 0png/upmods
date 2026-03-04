@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UpmodsCore } from './updater.js';
-import type { ModFile, Mod, ScanResult, MCVersion, ModUpdate, DownloadResult } from './types.js';
+import type { ModFile, Mod, ScanResult, MCVersion, ModUpdate, DownloadResult, MigrationResult } from './types.js';
 
 // Mock the scanner, modrinth, and downloader modules
 vi.mock('./scanner.js', () => ({
@@ -19,6 +19,10 @@ vi.mock('./downloader.js', () => ({
   downloadFile: vi.fn(),
 }));
 
+vi.mock('./migrator.js', () => ({
+  migrateCompatibleMods: vi.fn(),
+}));
+
 describe('UpmodsCore', () => {
   let core: UpmodsCore;
   let mockScanDirectory: ReturnType<typeof vi.fn>;
@@ -26,6 +30,7 @@ describe('UpmodsCore', () => {
   let mockGetGameVersions: ReturnType<typeof vi.fn>;
   let mockCheckUpdates: ReturnType<typeof vi.fn>;
   let mockDownloadFile: ReturnType<typeof vi.fn>;
+  let mockMigrateCompatibleMods: ReturnType<typeof vi.fn>;
 
   const makeModFile = (filename: string, sha1: string): ModFile => ({
     path: `/mods/${filename}`,
@@ -63,8 +68,10 @@ describe('UpmodsCore', () => {
     const { scanDirectory } = await import('./scanner.js');
     const { ModrinthClient } = await import('./modrinth.js');
     const { downloadFile } = await import('./downloader.js');
+    const { migrateCompatibleMods } = await import('./migrator.js');
     mockScanDirectory = scanDirectory as ReturnType<typeof vi.fn>;
     mockDownloadFile = downloadFile as ReturnType<typeof vi.fn>;
+    mockMigrateCompatibleMods = migrateCompatibleMods as ReturnType<typeof vi.fn>;
     const MockClient = ModrinthClient as ReturnType<typeof vi.fn>;
     core = new UpmodsCore();
     // Access the private modrinth instance via the constructor mock
@@ -416,6 +423,120 @@ describe('UpmodsCore', () => {
 
       // all:done should still be emitted
       // (we can test this separately, but here just verify the return value)
+    });
+  });
+
+  // T020: migrateCompatibleMods tests
+  describe('migrateCompatibleMods', () => {
+    const makeMigrationMod = (filename: string): Mod => {
+      const file = makeModFile(filename, `sha-${filename}`);
+      return makeMod(file);
+    };
+
+    const makeSuccessResult = (mod: Mod): MigrationResult => ({
+      mod,
+      success: true,
+      outputPath: `/output/${mod.file.filename}`,
+      sourceDeleted: true,
+    });
+
+    const makeFailResult = (mod: Mod, reason = 'disk error'): MigrationResult => ({
+      mod,
+      success: false,
+      sourceDeleted: false,
+      errorReason: reason,
+    });
+
+    it('emits migrate:start for each mod before migration', async () => {
+      const mod1 = makeMigrationMod('mod1.jar');
+      const mod2 = makeMigrationMod('mod2.jar');
+
+      mockMigrateCompatibleMods
+        .mockResolvedValueOnce([makeSuccessResult(mod1)])
+        .mockResolvedValueOnce([makeSuccessResult(mod2)]);
+
+      const startEvents: Mod[] = [];
+      core.on('migrate:start', (m: Mod) => startEvents.push(m));
+
+      await core.migrateCompatibleMods([mod1, mod2], '/output');
+
+      expect(startEvents).toHaveLength(2);
+      expect(startEvents).toContain(mod1);
+      expect(startEvents).toContain(mod2);
+    });
+
+    it('emits migrate:complete for successful migrations', async () => {
+      const mod = makeMigrationMod('mod.jar');
+      const successResult = makeSuccessResult(mod);
+
+      mockMigrateCompatibleMods.mockResolvedValue([successResult]);
+
+      const completeEvents: MigrationResult[] = [];
+      core.on('migrate:complete', (r: MigrationResult) => completeEvents.push(r));
+
+      await core.migrateCompatibleMods([mod], '/output');
+
+      expect(completeEvents).toHaveLength(1);
+      expect(completeEvents[0]).toBe(successResult);
+    });
+
+    it('emits migrate:error for failed migrations', async () => {
+      const mod = makeMigrationMod('mod.jar');
+      const failResult = makeFailResult(mod, 'disk full');
+
+      mockMigrateCompatibleMods.mockResolvedValue([failResult]);
+
+      const errorEvents: Array<{ mod: Mod; error: Error }> = [];
+      core.on('migrate:error', (m: Mod, e: Error) => errorEvents.push({ mod: m, error: e }));
+
+      await core.migrateCompatibleMods([mod], '/output');
+
+      expect(errorEvents).toHaveLength(1);
+      expect(errorEvents[0]!.mod).toBe(mod);
+      expect(errorEvents[0]!.error.message).toContain('disk full');
+    });
+
+    it('emits all:migrations:done after all mods settle', async () => {
+      const mod1 = makeMigrationMod('mod1.jar');
+      const mod2 = makeMigrationMod('mod2.jar');
+
+      mockMigrateCompatibleMods
+        .mockResolvedValueOnce([makeSuccessResult(mod1)])
+        .mockResolvedValueOnce([makeFailResult(mod2)]);
+
+      const allDoneEvents: MigrationResult[][] = [];
+      core.on('all:migrations:done', (results: MigrationResult[]) => allDoneEvents.push(results));
+
+      await core.migrateCompatibleMods([mod1, mod2], '/output');
+
+      expect(allDoneEvents).toHaveLength(1);
+      expect(allDoneEvents[0]).toHaveLength(2);
+    });
+
+    it('failed mods do not block remaining mods', async () => {
+      const mod1 = makeMigrationMod('fail.jar');
+      const mod2 = makeMigrationMod('success.jar');
+      const mod3 = makeMigrationMod('also-success.jar');
+
+      mockMigrateCompatibleMods
+        .mockResolvedValueOnce([makeFailResult(mod1)])
+        .mockResolvedValueOnce([makeSuccessResult(mod2)])
+        .mockResolvedValueOnce([makeSuccessResult(mod3)]);
+
+      const results = await core.migrateCompatibleMods([mod1, mod2, mod3], '/output');
+
+      expect(results).toHaveLength(3);
+      expect(mockMigrateCompatibleMods).toHaveBeenCalledTimes(3);
+      expect(results[0]!.success).toBe(false);
+      expect(results[1]!.success).toBe(true);
+      expect(results[2]!.success).toBe(true);
+    });
+
+    it('returns empty array for empty mods input', async () => {
+      const results = await core.migrateCompatibleMods([], '/output');
+
+      expect(results).toEqual([]);
+      expect(mockMigrateCompatibleMods).not.toHaveBeenCalled();
     });
   });
 });

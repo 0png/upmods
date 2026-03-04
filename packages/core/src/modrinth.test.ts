@@ -284,7 +284,8 @@ describe('ModrinthClient', () => {
       installedVersionId: `version-${sha1}`,
       installedVersionNumber: '1.0.0',
       loaders: [loader],
-      supportedMcVersions: ['1.20.1'],
+      // Covers versions used in tests so absent-from-response mods are upToDate not incompatible
+      supportedMcVersions: ['1.20.1', '1.21.1', '1.21.6'],
     });
 
     it('returns ModUpdate for mods with newer versions', async () => {
@@ -544,6 +545,130 @@ describe('ModrinthClient', () => {
 
       expect(result.updates.length).toBe(0);
       expect(result.upToDate.length).toBe(1);
+    });
+
+    // V1: incompatible detection tests (T016)
+    it('puts mod in incompatible when absent from response and supportedMcVersions excludes target', async () => {
+      const mod = createMockMod('abc123');
+      const incompatibleMod: Mod = { ...mod, supportedMcVersions: ['1.18.2', '1.19.4'] };
+
+      mockRequest.mockResolvedValue({
+        statusCode: 200,
+        body: { json: async () => ({}) }, // Absent from response
+      });
+
+      const result = await client.checkUpdates([incompatibleMod], '1.21.1');
+
+      expect(result.updates.length).toBe(0);
+      expect(result.upToDate.length).toBe(0);
+      expect(result.incompatible.length).toBe(1);
+      expect(result.incompatible[0]).toBe(incompatibleMod);
+    });
+
+    it('puts mod in upToDate when absent from response and supportedMcVersions includes target', async () => {
+      const mod = createMockMod('abc123');
+      // createMockMod includes '1.21.1' in supportedMcVersions — mod is compatible
+
+      mockRequest.mockResolvedValue({
+        statusCode: 200,
+        body: { json: async () => ({}) }, // Absent from response
+      });
+
+      const result = await client.checkUpdates([mod], '1.21.1');
+
+      expect(result.updates.length).toBe(0);
+      expect(result.upToDate.length).toBe(1);
+      expect(result.incompatible.length).toBe(0);
+      expect(result.upToDate[0]).toBe(mod);
+    });
+
+    it('treats empty supportedMcVersions as incompatible', async () => {
+      const mod = createMockMod('abc123');
+      const emptyVersionsMod: Mod = { ...mod, supportedMcVersions: [] };
+
+      mockRequest.mockResolvedValue({
+        statusCode: 200,
+        body: { json: async () => ({}) },
+      });
+
+      const result = await client.checkUpdates([emptyVersionsMod], '1.21.1');
+
+      expect(result.incompatible.length).toBe(1);
+      expect(result.upToDate.length).toBe(0);
+    });
+
+    it('populates expectedSha512 from primary file hash in update response', async () => {
+      const mod = createMockMod('abc123');
+      const expectedHash = 'sha512abcdef1234567890abcdef1234567890';
+      const mockResponse: Record<string, ModrinthVersionResponse> = {
+        abc123: {
+          id: 'new-version-id',
+          project_id: 'project-abc123',
+          name: 'Mod 2.0',
+          version_number: '2.0.0',
+          loaders: ['fabric'],
+          game_versions: ['1.21.1'],
+          files: [
+            {
+              url: 'https://cdn.modrinth.com/data/file.jar',
+              filename: 'mod-2.0.0.jar',
+              primary: true,
+              size: 2000,
+              hashes: { sha1: 'new-sha1', sha512: expectedHash },
+            },
+          ],
+        },
+      };
+
+      mockRequest.mockResolvedValue({
+        statusCode: 200,
+        body: { json: async () => mockResponse },
+      });
+
+      const result = await client.checkUpdates([mod], '1.21.1');
+
+      expect(result.updates.length).toBe(1);
+      expect(result.updates[0]!.expectedSha512).toBe(expectedHash);
+    });
+
+    it('leaves expectedSha512 undefined when no primary file sha512 in response', async () => {
+      const mod = createMockMod('abc123');
+      const mockResponse: Record<string, ModrinthVersionResponse> = {
+        abc123: {
+          id: 'new-version-id',
+          project_id: 'project-abc123',
+          name: 'Mod 2.0',
+          version_number: '2.0.0',
+          loaders: ['fabric'],
+          game_versions: ['1.21.1'],
+          files: [
+            {
+              url: 'https://cdn.modrinth.com/data/file.jar',
+              filename: 'mod-2.0.0.jar',
+              primary: true,
+              size: 2000,
+              hashes: { sha1: 'new-sha1', sha512: '' }, // empty sha512
+            },
+          ],
+        },
+      };
+
+      mockRequest.mockResolvedValue({
+        statusCode: 200,
+        body: { json: async () => mockResponse },
+      });
+
+      const result = await client.checkUpdates([mod], '1.21.1');
+
+      expect(result.updates.length).toBe(1);
+      // Empty string is falsy — treated as no hash provided
+      expect(result.updates[0]!.expectedSha512).toBeFalsy();
+    });
+
+    it('returns incompatible: [] when input is empty', async () => {
+      const result = await client.checkUpdates([], '1.21.1');
+
+      expect(result.incompatible).toEqual([]);
     });
   });
 });

@@ -162,14 +162,15 @@ export class ModrinthClient {
    * Check for available updates for a list of mods for a specific Minecraft version.
    * @param mods Array of identified mods
    * @param mcVersion Target Minecraft version (e.g., "1.21.1")
-   * @returns Object with updates array (mods with newer versions) and upToDate array
+   * @returns Object with updates array (newer versions available), upToDate array (already
+   *   at latest for this MC version), and incompatible array (no support for this MC version)
    */
   async checkUpdates(
     mods: Mod[],
     mcVersion: string
-  ): Promise<{ updates: ModUpdate[]; upToDate: Mod[] }> {
+  ): Promise<{ updates: ModUpdate[]; upToDate: Mod[]; incompatible: Mod[] }> {
     if (mods.length === 0) {
-      return { updates: [], upToDate: [] };
+      return { updates: [], upToDate: [], incompatible: [] };
     }
 
     // Detect the dominant loader across all installed mods.
@@ -208,6 +209,7 @@ export class ModrinthClient {
     const data = (await response.body.json()) as Record<string, ModrinthVersionResponse>;
     const updates: ModUpdate[] = [];
     const upToDate: Mod[] = [];
+    const incompatible: Mod[] = [];
 
     for (const mod of mods) {
       const updateData = data[mod.file.sha1];
@@ -238,15 +240,24 @@ export class ModrinthClient {
               downloadFilename: primaryFile.filename,
               downloadSizeBytes: primaryFile.size,
               status: 'pending',
+              expectedSha512: updateData.files.find((f) => f.primary)?.hashes.sha512,
             });
             continue;
           }
         }
-      }
 
-      upToDate.push(mod);
+        // Present in response but no valid update — already at latest for this criteria
+        upToDate.push(mod);
+      } else {
+        // Absent from response — check if mod supports the target MC version
+        if (mod.supportedMcVersions.includes(mcVersion)) {
+          upToDate.push(mod);
+        } else {
+          incompatible.push(mod);
+        }
+      }
     }
 
-    return { updates, upToDate };
+    return { updates, upToDate, incompatible };
   }
 }

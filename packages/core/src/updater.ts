@@ -1,9 +1,10 @@
 import { EventEmitter } from 'node:events';
 import type { CoreEvents } from './events.js';
-import type { ScanResult, Mod, ModFile, MCVersion, ModUpdate, DownloadResult } from './types.js';
+import type { ScanResult, Mod, ModFile, MCVersion, ModUpdate, DownloadResult, MigrationResult } from './types.js';
 import { scanDirectory } from './scanner.js';
 import { ModrinthClient } from './modrinth.js';
 import { downloadFile } from './downloader.js';
+import { migrateCompatibleMods as migrate } from './migrator.js';
 import pLimit from 'p-limit';
 
 // Declaration merging: overlay typed event methods on the class
@@ -116,18 +117,21 @@ export class UpmodsCore extends EventEmitter {
 
   /**
    * Check for available updates for a list of mods for a specific Minecraft version.
-   * Emits check:complete event with results.
+   * Emits check:complete (legacy) and check:complete:v1 (V1) events with results.
    * @param mods Array of identified mods
    * @param mcVersion Target Minecraft version (e.g., "1.21.1")
-   * @returns Object with updates array and upToDate array
+   * @returns Object with updates, upToDate, and incompatible arrays
    */
   async checkUpdates(
     mods: Mod[],
     mcVersion: string
-  ): Promise<{ updates: ModUpdate[]; upToDate: Mod[] }> {
+  ): Promise<{ updates: ModUpdate[]; upToDate: Mod[]; incompatible: Mod[] }> {
     try {
       const result = await this.modrinth.checkUpdates(mods, mcVersion);
+      // Emit legacy event for backward compatibility
       this.emit('check:complete', result.updates, result.upToDate);
+      // Emit V1 event with full classification including incompatible mods
+      this.emit('check:complete:v1', result.updates, result.upToDate, result.incompatible);
       return result;
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -179,5 +183,46 @@ export class UpmodsCore extends EventEmitter {
     const results = await Promise.all(resultPromises);
     this.emit('all:done', results);
     return results;
+  }
+
+  /**
+   * Migrate compatible mods (already at latest for the target MC version) to the
+   * output directory via safe copy-then-verify-then-delete.
+   * Emits migrate:start, migrate:complete / migrate:error per mod, and
+   * all:migrations:done after all mods settle.
+   * @param mods Array of Mod objects to migrate
+   * @param outputDir Absolute path to the output directory
+   * @returns Array of MigrationResult in parallel order
+   */
+  async migrateCompatibleMods(mods: Mod[], outputDir: string): Promise<MigrationResult[]> {
+    try {
+      const limit = pLimit(5);
+
+      const tasks = mods.map((mod) =>
+        limit(async (): Promise<MigrationResult> => {
+          this.emit('migrate:start', mod);
+          const [result] = await migrate([mod], outputDir);
+          if (!result) {
+            const err = new Error('Migrator returned no result');
+            this.emit('migrate:error', mod, err);
+            return { mod, success: false, sourceDeleted: false, errorReason: err.message };
+          }
+          if (result.success) {
+            this.emit('migrate:complete', result);
+          } else {
+            this.emit('migrate:error', mod, new Error(result.errorReason ?? 'Migration failed'));
+          }
+          return result;
+        }),
+      );
+
+      const results = await Promise.all(tasks);
+      this.emit('all:migrations:done', results);
+      return results;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.emit('error', error);
+      throw error;
+    }
   }
 }

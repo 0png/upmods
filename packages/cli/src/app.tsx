@@ -12,6 +12,8 @@ import Banner from './components/banner.js';
 import { ModTable } from './components/mod-table.js';
 import type { ModRow } from './components/mod-table.js';
 import { ProgressFooter } from './components/progress-footer.js';
+import { MultiSelectPhase } from './components/multi-select-phase.js';
+import { MigrationPhase } from './components/migration-phase.js';
 import { UpmodsCore, sanitizeVersionString } from '@upmods/core';
 
 interface AppProps {
@@ -39,9 +41,27 @@ export function App({ dir }: AppProps) {
       if (key.return) dispatch({ type: 'SELECT_MC_VERSION' });
     }
 
-    // Download trigger
-    if (state.phase === 'check_complete' && (input === 'u' || input === 'U')) {
-      dispatch({ type: 'START_DOWNLOAD' });
+    // T014: Multi-select phase — Space toggle, Enter confirm, arrows navigate
+    if (state.phase === 'check_complete') {
+      if (key.upArrow) dispatch({ type: 'CURSOR_UP' });
+      if (key.downArrow) dispatch({ type: 'CURSOR_DOWN' });
+
+      if (input === ' ') {
+        // Find the mod at the cursor position in the combined updates+upToDate list
+        const selectableList = [...state.updates, ...state.upToDate];
+        const item = selectableList[state.selectedMCVersionIndex];
+        if (item) {
+          const projectId = 'mod' in item ? item.mod.projectId : item.projectId;
+          dispatch({ type: 'TOGGLE_MOD_SELECTION', projectId });
+        }
+      }
+
+      if (key.return) {
+        const hasSelections = Object.values(state.modSelections).some(Boolean);
+        if (hasSelections) {
+          dispatch({ type: 'CONFIRM_SELECTION' });
+        }
+      }
     }
   });
 
@@ -94,14 +114,16 @@ export function App({ dir }: AppProps) {
     const selectedVersion = state.mcVersions[state.selectedMCVersionIndex]?.version;
     if (!selectedVersion || !state.scanResult) return;
 
-    const onCheckComplete = (
+    // T022(a): subscribe to check:complete:v1 and dispatch CHECK_COMPLETE_V1
+    const onCheckCompleteV1 = (
       updates: import('@upmods/core').ModUpdate[],
-      upToDate: import('@upmods/core').Mod[]
+      upToDate: import('@upmods/core').Mod[],
+      incompatible: import('@upmods/core').Mod[]
     ) => {
-      dispatch({ type: 'CHECK_COMPLETE', updates, upToDate });
+      dispatch({ type: 'CHECK_COMPLETE_V1', updates, upToDate, incompatible });
     };
 
-    core.on('check:complete', onCheckComplete);
+    core.on('check:complete:v1', onCheckCompleteV1);
 
     core.checkUpdates(state.scanResult.identified, selectedVersion).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -109,9 +131,54 @@ export function App({ dir }: AppProps) {
     });
 
     return () => {
-      core.off('check:complete', onCheckComplete);
+      core.off('check:complete:v1', onCheckCompleteV1);
     };
   }, [state.phase, state.selectedMCVersionIndex, state.mcVersions, state.scanResult]);
+
+  // T022(b): Handle migration phase
+  useEffect(() => {
+    const core = coreRef.current;
+    if (!core || state.phase !== 'migrating') return;
+
+    const outputDir = path.join(dir, 'mods-updated');
+    // Only migrate upToDate mods that are selected (not explicitly deselected)
+    const selectedUpToDate = state.upToDate.filter(
+      (m) => state.modSelections[m.projectId] !== false
+    );
+
+    const onMigrateComplete = (result: import('@upmods/core').MigrationResult) => {
+      dispatch({ type: 'MIGRATION_RESULT', result });
+    };
+
+    const onMigrateError = (mod: import('@upmods/core').Mod, error: Error) => {
+      const result: import('@upmods/core').MigrationResult = {
+        mod,
+        success: false,
+        sourceDeleted: false,
+        errorReason: error.message,
+      };
+      dispatch({ type: 'MIGRATION_RESULT', result });
+    };
+
+    const onAllMigrationsDone = (_results: import('@upmods/core').MigrationResult[]) => {
+      dispatch({ type: 'ALL_MIGRATIONS_DONE' });
+    };
+
+    core.on('migrate:complete', onMigrateComplete);
+    core.on('migrate:error', onMigrateError);
+    core.on('all:migrations:done', onAllMigrationsDone);
+
+    core.migrateCompatibleMods(selectedUpToDate, outputDir).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      dispatch({ type: 'ERROR', message });
+    });
+
+    return () => {
+      core.off('migrate:complete', onMigrateComplete);
+      core.off('migrate:error', onMigrateError);
+      core.off('all:migrations:done', onAllMigrationsDone);
+    };
+  }, [state.phase]);
 
   // Handle download phase
   useEffect(() => {
@@ -119,6 +186,10 @@ export function App({ dir }: AppProps) {
     if (!core || state.phase !== 'downloading') return;
 
     const outputDir = path.join(dir, 'mods-updated');
+    // T022(d): only download updates for selected mods
+    const selectedUpdates = state.updates.filter(
+      (u) => state.modSelections[u.mod.projectId] !== false
+    );
 
     const onDownloadProgress = (
       update: import('@upmods/core').ModUpdate,
@@ -155,7 +226,7 @@ export function App({ dir }: AppProps) {
     core.on('download:error', onDownloadError);
     core.on('all:done', onAllDone);
 
-    core.downloadUpdates(state.updates, outputDir).catch((err: unknown) => {
+    core.downloadUpdates(selectedUpdates, outputDir).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       dispatch({ type: 'ERROR', message });
     });
@@ -179,20 +250,14 @@ export function App({ dir }: AppProps) {
           statusColor: 'cyan',
         }));
 
-      case 'check_complete':
-        return state.updates.map((u) => ({
-          name: u.mod.displayName,
-          current: sanitizeVersionString(u.mod.installedVersionNumber),
-          target: sanitizeVersionString(u.latestVersionNumber),
-          status: 'pending',
-          statusColor: 'yellow',
-        }));
-
       case 'downloading': {
         const resultMap = new Map(
           state.downloadResults.map((r) => [r.update.mod.file.sha1, r]),
         );
-        return state.updates.map((u) => {
+        const selectedUpdates = state.updates.filter(
+          (u) => state.modSelections[u.mod.projectId] !== false
+        );
+        return selectedUpdates.map((u) => {
           const result = resultMap.get(u.mod.file.sha1);
           if (result) {
             return {
@@ -265,20 +330,34 @@ export function App({ dir }: AppProps) {
       return <Text>Checking for updates…</Text>;
     }
 
+    // T014: Replace check_complete placeholder with MultiSelectPhase
     if (state.phase === 'check_complete') {
-      const rows = buildModRows();
       return (
-        <Box flexDirection="column">
-          {rows.length > 0 ? (
-            <ModTable mods={rows} />
-          ) : (
-            <Text color="green">All mods are up to date.</Text>
-          )}
-          <Box marginTop={1}>
-            <Text dimColor>Press U to update · Q to quit</Text>
-          </Box>
-        </Box>
+        <MultiSelectPhase
+          updates={state.updates}
+          upToDate={state.upToDate}
+          incompatibleMods={state.incompatibleMods}
+          modSelections={state.modSelections}
+          selectedIndex={state.selectedMCVersionIndex}
+        />
       );
+    }
+
+    // T022(c): Migration phase display
+    if (state.phase === 'migrating') {
+      const selectedUpToDate = state.upToDate.filter(
+        (m) => state.modSelections[m.projectId] !== false
+      );
+      return (
+        <MigrationPhase
+          migrationResults={state.migrationResults}
+          totalMigrations={selectedUpToDate.length}
+        />
+      );
+    }
+
+    if (state.phase === 'restoring' || state.phase === 'recovery_prompt') {
+      return <Text>Recovering previous session…</Text>;
     }
 
     if (state.phase === 'downloading') {
@@ -287,7 +366,7 @@ export function App({ dir }: AppProps) {
         <Box flexDirection="column">
           <ModTable mods={rows} />
           <DownloadPhase
-            updates={state.updates}
+            updates={state.updates.filter((u) => state.modSelections[u.mod.projectId] !== false)}
             downloadResults={state.downloadResults}
             downloadProgress={state.downloadProgress}
           />
@@ -306,14 +385,6 @@ export function App({ dir }: AppProps) {
           />
         </Box>
       );
-    }
-
-    if (state.phase === 'recovery_prompt' || state.phase === 'restoring') {
-      return <Text>Recovering previous session…</Text>;
-    }
-
-    if (state.phase === 'migrating') {
-      return <Text>Migrating mods…</Text>;
     }
 
     return <Text>Loading…</Text>;
