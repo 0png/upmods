@@ -1,12 +1,15 @@
-import type { ScanResult, MCVersion, ModUpdate, Mod, DownloadResult } from '@upmods/core';
+import type { ScanResult, MCVersion, ModUpdate, Mod, DownloadResult, MigrationResult, SessionSnapshot } from '@upmods/core';
 
 export type AppPhase =
+  | 'recovery_prompt'
+  | 'restoring'
   | 'scanning'
   | 'identifying'
   | 'scan_complete'
   | 'version_select'
   | 'checking'
   | 'check_complete'
+  | 'migrating'
   | 'downloading'
   | 'done'
   | 'error';
@@ -19,9 +22,14 @@ export interface AppState {
   selectedMCVersion: string | null;
   updates: ModUpdate[];
   upToDate: Mod[];
+  incompatibleMods: Mod[];
   downloadResults: DownloadResult[];
   /** Per-mod SHA-1 → { bytes, total } for live progress display */
   downloadProgress: Record<string, { bytes: number; total: number }>;
+  migrationResults: MigrationResult[];
+  modSelections: Record<string, boolean>;
+  recoverySnapshot: SessionSnapshot | null;
+  snapshotPath: string | null;
   errorMessage: string | null;
   locale: 'en' | 'zh-TW';
 }
@@ -41,7 +49,19 @@ export type AppAction =
   | { type: 'DOWNLOAD_ALL_DONE' }
   | { type: 'TOGGLE_LANGUAGE' }
   | { type: 'QUIT' }
-  | { type: 'ERROR'; message: string };
+  | { type: 'ERROR'; message: string }
+  // V1 actions
+  | { type: 'RECOVERY_DETECTED'; snapshot: SessionSnapshot }
+  | { type: 'RECOVERY_CONFIRMED' }
+  | { type: 'RECOVERY_DECLINED' }
+  | { type: 'RECOVERY_COMPLETE'; restoredCount: number; failedCount: number }
+  | { type: 'CHECK_COMPLETE_V1'; updates: ModUpdate[]; upToDate: Mod[]; incompatible: Mod[] }
+  | { type: 'TOGGLE_MOD_SELECTION'; projectId: string }
+  | { type: 'CONFIRM_SELECTION' }
+  | { type: 'SNAPSHOT_WRITTEN'; snapshotPath: string }
+  | { type: 'MIGRATION_RESULT'; result: MigrationResult }
+  | { type: 'ALL_MIGRATIONS_DONE' }
+  | { type: 'INTEGRITY_RESULT'; modName: string; passed: boolean };
 
 export const initialState: AppState = {
   phase: 'scanning',
@@ -51,8 +71,13 @@ export const initialState: AppState = {
   selectedMCVersion: null,
   updates: [],
   upToDate: [],
+  incompatibleMods: [],
   downloadResults: [],
   downloadProgress: {},
+  migrationResults: [],
+  modSelections: {},
+  recoverySnapshot: null,
+  snapshotPath: null,
   errorMessage: null,
   locale: 'en',
 };
@@ -121,6 +146,56 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return state;
     case 'ERROR':
       return { ...state, phase: 'error', errorMessage: action.message };
+
+    // V1 reducer cases
+    case 'RECOVERY_DETECTED':
+      return { ...state, phase: 'recovery_prompt', recoverySnapshot: action.snapshot };
+    case 'RECOVERY_CONFIRMED':
+      return { ...state, phase: 'restoring' };
+    case 'RECOVERY_DECLINED':
+      return { ...state, phase: 'scanning', recoverySnapshot: null };
+    case 'RECOVERY_COMPLETE':
+      return { ...state, phase: 'scanning', recoverySnapshot: null };
+    case 'CHECK_COMPLETE_V1': {
+      const selectable = [...action.updates, ...action.upToDate];
+      const modSelections = Object.fromEntries(
+        selectable.map((entry) => {
+          const projectId = 'mod' in entry ? entry.mod.projectId : entry.projectId;
+          return [projectId, true];
+        }),
+      );
+      return {
+        ...state,
+        phase: 'check_complete',
+        updates: action.updates,
+        upToDate: action.upToDate,
+        incompatibleMods: action.incompatible,
+        modSelections,
+      };
+    }
+    case 'TOGGLE_MOD_SELECTION':
+      return {
+        ...state,
+        modSelections: {
+          ...state.modSelections,
+          [action.projectId]: !state.modSelections[action.projectId],
+        },
+      };
+    case 'CONFIRM_SELECTION':
+      return { ...state, phase: 'migrating' };
+    case 'SNAPSHOT_WRITTEN':
+      return { ...state, snapshotPath: action.snapshotPath };
+    case 'MIGRATION_RESULT':
+      return {
+        ...state,
+        migrationResults: [...state.migrationResults, action.result],
+      };
+    case 'ALL_MIGRATIONS_DONE':
+      return { ...state, phase: 'downloading' };
+    case 'INTEGRITY_RESULT':
+      // Status already updated via DOWNLOAD_RESULT; no-op here
+      return state;
+
     default:
       return state;
   }

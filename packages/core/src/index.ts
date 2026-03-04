@@ -8,4 +8,12 @@ export type {
   ScanResult,
   DownloadResult,
   UpdateStatus,
+  // V1 types
+  ModDisposition,
+  OperationStatus,
+  MigrationResult,
+  SnapshotOperation,
+  SessionSnapshot,
 } from './types.js';
+
+export { sanitizeVersionString, SANITIZER_PATTERNS } from './sanitizer.js';
