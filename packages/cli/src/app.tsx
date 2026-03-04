@@ -1,15 +1,18 @@
 import React, { useReducer, useRef, useEffect } from 'react';
 import path from 'node:path';
-import { Text, useApp, useInput } from 'ink';
+import { Box, Text, useApp, useInput } from 'ink';
 import { LanguageProvider } from './i18n/use-language.js';
 import { reducer, initialState } from './state/reducer.js';
 import { ErrorPhase } from './components/error-phase.js';
 import { ScanPhase } from './components/scan-phase.js';
 import { VersionSelectPhase } from './components/version-select-phase.js';
-import { CheckPhase } from './components/check-phase.js';
 import { DownloadPhase } from './components/download-phase.js';
 import { SummaryPhase } from './components/summary-phase.js';
-import { UpmodsCore } from '@upmods/core';
+import Banner from './components/banner.js';
+import { ModTable } from './components/mod-table.js';
+import type { ModRow } from './components/mod-table.js';
+import { ProgressFooter } from './components/progress-footer.js';
+import { UpmodsCore, sanitizeVersionString } from '@upmods/core';
 
 interface AppProps {
   dir: string;
@@ -165,13 +168,90 @@ export function App({ dir }: AppProps) {
     };
   }, [state.phase]);
 
-  const renderPhase = () => {
+  const buildModRows = (): ModRow[] => {
+    switch (state.phase) {
+      case 'scan_complete':
+        return (state.scanResult?.identified ?? []).map((mod) => ({
+          name: mod.displayName,
+          current: sanitizeVersionString(mod.installedVersionNumber),
+          target: '—',
+          status: 'IDENTIFIED',
+          statusColor: 'cyan',
+        }));
+
+      case 'check_complete':
+        return state.updates.map((u) => ({
+          name: u.mod.displayName,
+          current: sanitizeVersionString(u.mod.installedVersionNumber),
+          target: sanitizeVersionString(u.latestVersionNumber),
+          status: 'pending',
+          statusColor: 'yellow',
+        }));
+
+      case 'downloading': {
+        const resultMap = new Map(
+          state.downloadResults.map((r) => [r.update.mod.file.sha1, r]),
+        );
+        return state.updates.map((u) => {
+          const result = resultMap.get(u.mod.file.sha1);
+          if (result) {
+            return {
+              name: u.mod.displayName,
+              current: sanitizeVersionString(u.mod.installedVersionNumber),
+              target: sanitizeVersionString(u.latestVersionNumber),
+              status: result.success ? '✓ DONE' : '✘ ERROR',
+              statusColor: result.success ? 'greenBright' : 'red',
+            };
+          }
+          return {
+            name: u.mod.displayName,
+            current: sanitizeVersionString(u.mod.installedVersionNumber),
+            target: sanitizeVersionString(u.latestVersionNumber),
+            status: 'downloading...',
+            statusColor: 'cyan',
+          };
+        });
+      }
+
+      case 'done':
+        return state.downloadResults.map((r) => ({
+          name: r.update.mod.displayName,
+          current: sanitizeVersionString(r.update.mod.installedVersionNumber),
+          target: sanitizeVersionString(r.update.latestVersionNumber),
+          status: r.success ? '✓ DONE' : '✘ ERROR',
+          statusColor: r.success ? 'greenBright' : 'red',
+        }));
+
+      default:
+        return [];
+    }
+  };
+
+  const renderPhaseContent = () => {
     if (state.phase === 'error') {
       return <ErrorPhase state={state} />;
     }
-    if (state.phase === 'scanning' || state.phase === 'identifying' || state.phase === 'scan_complete') {
+
+    if (state.phase === 'scanning' || state.phase === 'identifying') {
       return <ScanPhase state={state} />;
     }
+
+    if (state.phase === 'scan_complete') {
+      const rows = buildModRows();
+      return (
+        <Box flexDirection="column">
+          {rows.length > 0 ? (
+            <ModTable mods={rows} />
+          ) : (
+            <ScanPhase state={state} />
+          )}
+          <Box marginTop={1}>
+            <Text dimColor>Press Enter to select MC version · Q to quit</Text>
+          </Box>
+        </Box>
+      );
+    }
+
     if (state.phase === 'version_select') {
       return (
         <VersionSelectPhase
@@ -180,38 +260,77 @@ export function App({ dir }: AppProps) {
         />
       );
     }
+
     if (state.phase === 'checking') {
       return <Text>Checking for updates…</Text>;
     }
+
     if (state.phase === 'check_complete') {
-      return <CheckPhase updates={state.updates} upToDate={state.upToDate} />;
+      const rows = buildModRows();
+      return (
+        <Box flexDirection="column">
+          {rows.length > 0 ? (
+            <ModTable mods={rows} />
+          ) : (
+            <Text color="green">All mods are up to date.</Text>
+          )}
+          <Box marginTop={1}>
+            <Text dimColor>Press U to update · Q to quit</Text>
+          </Box>
+        </Box>
+      );
     }
+
     if (state.phase === 'downloading') {
+      const rows = buildModRows();
       return (
-        <DownloadPhase
-          updates={state.updates}
-          downloadResults={state.downloadResults}
-          downloadProgress={state.downloadProgress}
-        />
+        <Box flexDirection="column">
+          <ModTable mods={rows} />
+          <DownloadPhase
+            updates={state.updates}
+            downloadResults={state.downloadResults}
+            downloadProgress={state.downloadProgress}
+          />
+        </Box>
       );
     }
+
     if (state.phase === 'done') {
+      const rows = buildModRows();
       return (
-        <SummaryPhase
-          downloadResults={state.downloadResults}
-          outputDir={path.join(dir, 'mods-updated')}
-        />
+        <Box flexDirection="column">
+          <ModTable mods={rows} />
+          <SummaryPhase
+            downloadResults={state.downloadResults}
+            outputDir={path.join(dir, 'mods-updated')}
+          />
+        </Box>
       );
     }
+
+    if (state.phase === 'recovery_prompt' || state.phase === 'restoring') {
+      return <Text>Recovering previous session…</Text>;
+    }
+
+    if (state.phase === 'migrating') {
+      return <Text>Migrating mods…</Text>;
+    }
+
     return <Text>Loading…</Text>;
   };
 
   return (
-    <LanguageProvider
-      locale={state.locale}
-      toggleLanguage={() => dispatch({ type: 'TOGGLE_LANGUAGE' })}
-    >
-      {renderPhase()}
-    </LanguageProvider>
+    <Box flexDirection="column">
+      <Banner />
+      <LanguageProvider
+        locale={state.locale}
+        toggleLanguage={() => dispatch({ type: 'TOGGLE_LANGUAGE' })}
+      >
+        <Box flexGrow={1}>
+          {renderPhaseContent()}
+        </Box>
+      </LanguageProvider>
+      <ProgressFooter phase={state.phase} />
+    </Box>
   );
 }
