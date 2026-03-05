@@ -14,6 +14,8 @@ export interface ModRow {
 interface ModTableProps {
   mods: ModRow[];
   showSelection?: boolean;
+  cursorIndex?: number;
+  maxVisibleRows?: number;
 }
 
 function padCell(str: string, width: number): string {
@@ -21,9 +23,25 @@ function padCell(str: string, width: number): string {
   return truncated.padEnd(width);
 }
 
-export function ModTable({ mods, showSelection = false }: ModTableProps) {
+export function ModTable({ mods, showSelection = false, cursorIndex, maxVisibleRows }: ModTableProps) {
   const { stdout } = useStdout();
-  const termWidth = (stdout as { columns?: number } | undefined)?.columns ?? 80;
+  const termWidth = (stdout as { columns?: number; rows?: number } | undefined)?.columns ?? 80;
+  const termRows = (stdout as { columns?: number; rows?: number } | undefined)?.rows ?? 24;
+
+  // Virtual scrolling: calculate visible slice
+  const OVERHEAD = 12; // Banner(5) + Footer(3) + Table borders/header(4)
+  const availableRows = termRows - OVERHEAD;
+  const visibleCount = maxVisibleRows ?? Math.max(5, availableRows);
+
+  // Centered cursor scroll (from SelectList pattern)
+  const total = mods.length;
+  const half = Math.floor(visibleCount / 2);
+  const scrollOffset = cursorIndex !== undefined
+    ? Math.max(0, Math.min(cursorIndex - half, total - visibleCount))
+    : 0;
+
+  // Render only visible slice
+  const visibleMods = mods.slice(scrollOffset, scrollOffset + visibleCount);
 
   const statusWidth = 14;
   const reserved = 16;
@@ -68,20 +86,44 @@ export function ModTable({ mods, showSelection = false }: ModTableProps) {
   return (
     <Box flexDirection="column">
       <Text>{topBorder}</Text>
-      <Text>{headerRow}</Text>
+      <Text bold>{headerRow}</Text>
       <Text>{sepBorder}</Text>
-      {mods.map((mod, i) => {
+      {visibleMods.map((mod, i) => {
+        const globalIdx = scrollOffset + i;
+        const isCursorRow = cursorIndex !== undefined && globalIdx === cursorIndex;
+        const isEvenRow = globalIdx % 2 === 0;
+
         const prefix = showSelection ? (mod.selected !== false ? '● ' : '○ ') : '';
         const nameCell = padCell(prefix + mod.name, nameWidth);
         const currentCell = padCell(mod.current, currentWidth);
         const targetCell = padCell(mod.target, targetWidth);
         const statusCell = padCell(mod.status, statusWidth);
 
+        // Status color mapping
+        let statusColor = mod.statusColor;
+        if (mod.status === 'IDENTIFIED') statusColor = 'blue';
+        if (mod.status === 'pending') statusColor = 'yellow';
+
         return (
-          <Box key={i}>
-            <Text>{`│ ${nameCell} │ ${currentCell} │ ${targetCell} │ `}</Text>
-            <Text color={mod.statusColor as string | undefined}>{statusCell}</Text>
-            <Text>{' │'}</Text>
+          <Box key={globalIdx}>
+            <Text
+              backgroundColor={isCursorRow ? 'cyan' : undefined}
+              color={isCursorRow ? 'black' : (isEvenRow ? 'white' : 'gray')}
+            >
+              {`│ ${nameCell} │ ${currentCell} │ ${targetCell} │ `}
+            </Text>
+            <Text
+              backgroundColor={isCursorRow ? 'cyan' : undefined}
+              color={isCursorRow ? 'black' : statusColor as string | undefined}
+            >
+              {statusCell}
+            </Text>
+            <Text
+              backgroundColor={isCursorRow ? 'cyan' : undefined}
+              color={isCursorRow ? 'black' : (isEvenRow ? 'white' : 'gray')}
+            >
+              {' │'}
+            </Text>
           </Box>
         );
       })}

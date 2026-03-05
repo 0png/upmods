@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import type { ModUpdate, Mod } from '@upmods/core';
 import { sanitizeVersionString } from '@upmods/core';
 import { ModTable } from './mod-table.js';
@@ -20,6 +20,10 @@ export function MultiSelectPhase({
   modSelections,
   selectedIndex,
 }: MultiSelectPhaseProps) {
+  const { stdout } = useStdout();
+  const termRows = (stdout as { rows?: number } | undefined)?.rows ?? 24;
+  const availableRows = termRows - 12; // Calculate viewport
+
   const selectableCount = updates.length + upToDate.length;
 
   const rows: ModRow[] = [
@@ -68,9 +72,14 @@ export function MultiSelectPhase({
   const toMigrate = upToDate.filter((m) => modSelections[m.projectId] ?? true).length;
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" alignItems="center">
       <Text dimColor>Select mods to update. Space=toggle, Enter=confirm, Q=quit</Text>
-      <ModTable mods={rows} showSelection />
+      <ModTable
+        mods={rows}
+        showSelection
+        cursorIndex={selectedIndex}
+        maxVisibleRows={availableRows}
+      />
       {allDeselected ? (
         <Text color="yellow">Nothing selected. Press Space to select mods.</Text>
       ) : (

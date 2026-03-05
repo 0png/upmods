@@ -29,8 +29,10 @@ export function ProgressFooter({ phase }: ProgressFooterProps) {
     info.step !== null ? `Step ${info.step}/5: ${info.label}` : info.label;
 
   return (
-    <Box borderStyle="single" paddingX={1}>
-      <Text>{content}</Text>
+    <Box justifyContent="center" paddingY={0}>
+      <Box borderStyle="single" paddingX={1}>
+        <Text>{content}</Text>
+      </Box>
     </Box>
   );
 }

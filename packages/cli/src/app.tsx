@@ -318,10 +318,11 @@ export function App({ dir }: AppProps) {
 
     if (state.phase === 'scan_complete') {
       const rows = buildModRows();
+      const availableRows = termRows - 12;
       return (
-        <Box flexDirection="column">
+        <Box flexDirection="column" alignItems="center">
           {rows.length > 0 ? (
-            <ModTable mods={rows} />
+            <ModTable mods={rows} maxVisibleRows={availableRows} />
           ) : (
             <ScanPhase state={state} />
           )}
@@ -377,9 +378,10 @@ export function App({ dir }: AppProps) {
 
     if (state.phase === 'downloading') {
       const rows = buildModRows();
+      const availableRows = termRows - 12;
       return (
-        <Box flexDirection="column">
-          <ModTable mods={rows} />
+        <Box flexDirection="column" alignItems="center">
+          <ModTable mods={rows} maxVisibleRows={availableRows} />
           <DownloadPhase
             updates={state.updates.filter((u) => state.modSelections[u.mod.projectId] !== false)}
             downloadResults={state.downloadResults}
@@ -391,9 +393,10 @@ export function App({ dir }: AppProps) {
 
     if (state.phase === 'done') {
       const rows = buildModRows();
+      const availableRows = termRows - 12;
       return (
-        <Box flexDirection="column">
-          <ModTable mods={rows} />
+        <Box flexDirection="column" alignItems="center">
+          <ModTable mods={rows} maxVisibleRows={availableRows} />
           <SummaryPhase
             downloadResults={state.downloadResults}
             outputDir={path.join(dir, 'mods-updated')}
@@ -426,16 +429,20 @@ export function App({ dir }: AppProps) {
     // so Ink's line-erasure algorithm always clears the entire previous frame.
     // This eliminates "ghosting" when phases render fewer lines than the previous phase.
     <Box flexDirection="column" height={termRows}>
-      <Banner />
+      <Box flexShrink={0} justifyContent="center">
+        <Banner />
+      </Box>
       <LanguageProvider
         locale={state.locale}
         toggleLanguage={() => dispatch({ type: 'TOGGLE_LANGUAGE' })}
       >
-        <Box flexGrow={1} flexDirection="column">
+        <Box flexGrow={1} flexDirection="column" overflow="hidden">
           {renderPhaseContent()}
         </Box>
       </LanguageProvider>
-      <ProgressFooter phase={state.phase} />
+      <Box flexShrink={0}>
+        <ProgressFooter phase={state.phase} />
+      </Box>
     </Box>
   );
 }

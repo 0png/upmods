@@ -23,9 +23,9 @@ export default function Banner() {
   }
 
   return (
-    <Box flexDirection="column" alignItems="center">
+    <Box flexDirection="column" alignItems="center" paddingY={1}>
       {BANNER_LINES.map((line, i) => (
-        <Text key={i} bold>
+        <Text key={i} bold color="cyan">
           {line}
         </Text>
       ))}
