@@ -84,50 +84,52 @@ export function ModTable({ mods, showSelection = false, cursorIndex, maxVisibleR
     ' │ ' + padCell('Status', statusWidth) + ' │';
 
   return (
-    <Box flexDirection="column">
-      <Text>{topBorder}</Text>
-      <Text bold>{headerRow}</Text>
-      <Text>{sepBorder}</Text>
-      {visibleMods.map((mod, i) => {
-        const globalIdx = scrollOffset + i;
-        const isCursorRow = cursorIndex !== undefined && globalIdx === cursorIndex;
-        const isEvenRow = globalIdx % 2 === 0;
+    <Box justifyContent="center">
+      <Box flexDirection="column">
+        <Text>{topBorder}</Text>
+        <Text bold>{headerRow}</Text>
+        <Text>{sepBorder}</Text>
+        {visibleMods.map((mod, i) => {
+          const globalIdx = scrollOffset + i;
+          const isCursorRow = cursorIndex !== undefined && globalIdx === cursorIndex;
+          const isEvenRow = globalIdx % 2 === 0;
 
-        const prefix = showSelection ? (mod.selected !== false ? '● ' : '○ ') : '';
-        const nameCell = padCell(prefix + mod.name, nameWidth);
-        const currentCell = padCell(mod.current, currentWidth);
-        const targetCell = padCell(mod.target, targetWidth);
-        const statusCell = padCell(mod.status, statusWidth);
+          const prefix = showSelection ? (mod.selected !== false ? '● ' : '○ ') : '';
+          const nameCell = padCell(prefix + mod.name, nameWidth);
+          const currentCell = padCell(mod.current, currentWidth);
+          const targetCell = padCell(mod.target, targetWidth);
+          const statusCell = padCell(mod.status, statusWidth);
 
-        // Status color mapping
-        let statusColor = mod.statusColor;
-        if (mod.status === 'IDENTIFIED') statusColor = 'blue';
-        if (mod.status === 'pending') statusColor = 'yellow';
+          // Status color mapping
+          let statusColor = mod.statusColor;
+          if (mod.status === 'IDENTIFIED') statusColor = 'blue';
+          if (mod.status === 'pending') statusColor = 'yellow';
 
-        return (
-          <Box key={globalIdx}>
-            <Text
-              backgroundColor={isCursorRow ? 'cyan' : undefined}
-              color={isCursorRow ? 'black' : (isEvenRow ? 'white' : 'gray')}
-            >
-              {`│ ${nameCell} │ ${currentCell} │ ${targetCell} │ `}
-            </Text>
-            <Text
-              backgroundColor={isCursorRow ? 'cyan' : undefined}
-              color={isCursorRow ? 'black' : statusColor as string | undefined}
-            >
-              {statusCell}
-            </Text>
-            <Text
-              backgroundColor={isCursorRow ? 'cyan' : undefined}
-              color={isCursorRow ? 'black' : (isEvenRow ? 'white' : 'gray')}
-            >
-              {' │'}
-            </Text>
-          </Box>
-        );
-      })}
-      <Text>{botBorder}</Text>
+          return (
+            <Box key={globalIdx}>
+              <Text
+                backgroundColor={isCursorRow ? 'cyan' : undefined}
+                color={isCursorRow ? 'black' : (isEvenRow ? 'white' : 'gray')}
+              >
+                {`│ ${nameCell} │ ${currentCell} │ ${targetCell} │ `}
+              </Text>
+              <Text
+                backgroundColor={isCursorRow ? 'cyan' : undefined}
+                color={isCursorRow ? 'black' : statusColor as string | undefined}
+              >
+                {statusCell}
+              </Text>
+              <Text
+                backgroundColor={isCursorRow ? 'cyan' : undefined}
+                color={isCursorRow ? 'black' : (isEvenRow ? 'white' : 'gray')}
+              >
+                {' │'}
+              </Text>
+            </Box>
+          );
+        })}
+        <Text>{botBorder}</Text>
+      </Box>
     </Box>
   );
 }

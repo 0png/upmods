@@ -72,22 +72,26 @@ export function MultiSelectPhase({
   const toMigrate = upToDate.filter((m) => modSelections[m.projectId] ?? true).length;
 
   return (
-    <Box flexDirection="column" alignItems="center">
-      <Text dimColor>Select mods to update. Space=toggle, Enter=confirm, Q=quit</Text>
+    <Box flexDirection="column">
+      <Box justifyContent="center">
+        <Text dimColor>Select mods to update. Space=toggle, Enter=confirm, Q=quit</Text>
+      </Box>
       <ModTable
         mods={rows}
         showSelection
         cursorIndex={selectedIndex}
         maxVisibleRows={availableRows}
       />
-      {allDeselected ? (
-        <Text color="yellow">Nothing selected. Press Space to select mods.</Text>
-      ) : (
-        <Text dimColor>
-          {selectableCount} mods total · {toDownload} to download · {toMigrate} to migrate ·{' '}
-          {incompatibleMods.length} incompatible
-        </Text>
-      )}
+      <Box justifyContent="center">
+        {allDeselected ? (
+          <Text color="yellow">Nothing selected. Press Space to select mods.</Text>
+        ) : (
+          <Text dimColor>
+            {selectableCount} mods total · {toDownload} to download · {toMigrate} to migrate ·{' '}
+            {incompatibleMods.length} incompatible
+          </Text>
+        )}
+      </Box>
     </Box>
   );
 }

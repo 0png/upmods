@@ -320,13 +320,13 @@ export function App({ dir }: AppProps) {
       const rows = buildModRows();
       const availableRows = termRows - 12;
       return (
-        <Box flexDirection="column" alignItems="center">
+        <Box flexDirection="column">
           {rows.length > 0 ? (
             <ModTable mods={rows} maxVisibleRows={availableRows} />
           ) : (
             <ScanPhase state={state} />
           )}
-          <Box marginTop={1}>
+          <Box marginTop={1} justifyContent="center">
             <Text dimColor>Press Enter to select MC version · Q to quit</Text>
           </Box>
         </Box>
@@ -380,7 +380,7 @@ export function App({ dir }: AppProps) {
       const rows = buildModRows();
       const availableRows = termRows - 12;
       return (
-        <Box flexDirection="column" alignItems="center">
+        <Box flexDirection="column">
           <ModTable mods={rows} maxVisibleRows={availableRows} />
           <DownloadPhase
             updates={state.updates.filter((u) => state.modSelections[u.mod.projectId] !== false)}
@@ -395,7 +395,7 @@ export function App({ dir }: AppProps) {
       const rows = buildModRows();
       const availableRows = termRows - 12;
       return (
-        <Box flexDirection="column" alignItems="center">
+        <Box flexDirection="column">
           <ModTable mods={rows} maxVisibleRows={availableRows} />
           <SummaryPhase
             downloadResults={state.downloadResults}
