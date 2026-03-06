@@ -351,7 +351,7 @@ export function App({ dir }: AppProps) {
     }
 
     if (state.phase === 'checking') {
-      return <Text>Checking for updates…</Text>;
+      return <Box alignItems="center"><Text>Checking for updates…</Text></Box>;
     }
 
     // T014: Replace check_complete placeholder with MultiSelectPhase

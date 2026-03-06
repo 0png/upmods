@@ -42,7 +42,7 @@ export function ScanPhase({ state }: ScanPhaseProps) {
   }
 
   return (
-    <Box flexDirection="column" paddingY={1}>
+    <Box flexDirection="column" paddingY={1} alignItems="center">
       {/* Header with spinner or done indicator */}
       <Box>
         {isScanning ? (
