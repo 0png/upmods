@@ -13,8 +13,8 @@ export function VersionSelectPhase({ versions, selectedIndex }: VersionSelectPha
   const { t } = useLanguage();
 
   return (
-    <Box flexDirection="column" paddingY={1}>
-      <Box marginBottom={1}>
+    <Box flexDirection="column" paddingY={1} alignItems="center">
+      <Box marginBottom={1} justifyContent="center">
         <Text bold>{t.versionSelect.title}</Text>
       </Box>
 
@@ -31,7 +31,7 @@ export function VersionSelectPhase({ versions, selectedIndex }: VersionSelectPha
         )}
       />
 
-      <Box marginTop={1}>
+      <Box marginTop={1} justifyContent="center">
         <Text dimColor>{t.versionSelect.hint}</Text>
       </Box>
     </Box>

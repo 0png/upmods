@@ -40,7 +40,7 @@ export type AppAction =
   | { type: 'PROCEED_TO_VERSION_SELECT' }
   | { type: 'MC_VERSIONS_LOADED'; versions: MCVersion[] }
   | { type: 'CURSOR_UP' }
-  | { type: 'CURSOR_DOWN' }
+  | { type: 'CURSOR_DOWN'; max?: number }
   | { type: 'SELECT_MC_VERSION' }
   | { type: 'CHECK_COMPLETE'; updates: ModUpdate[]; upToDate: Mod[] }
   | { type: 'START_DOWNLOAD' }
@@ -101,14 +101,13 @@ export function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         selectedMCVersionIndex: Math.max(0, state.selectedMCVersionIndex - 1),
       };
-    case 'CURSOR_DOWN':
+    case 'CURSOR_DOWN': {
+      const upperBound = action.max !== undefined ? action.max : state.mcVersions.length - 1;
       return {
         ...state,
-        selectedMCVersionIndex: Math.min(
-          state.mcVersions.length - 1,
-          state.selectedMCVersionIndex + 1,
-        ),
+        selectedMCVersionIndex: Math.min(upperBound, state.selectedMCVersionIndex + 1),
       };
+    }
     case 'SELECT_MC_VERSION':
       return {
         ...state,

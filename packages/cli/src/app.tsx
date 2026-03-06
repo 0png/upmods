@@ -59,7 +59,10 @@ export function App({ dir }: AppProps) {
     // T014: Multi-select phase — Space toggle, Enter confirm, arrows navigate
     if (state.phase === 'check_complete') {
       if (key.upArrow) dispatch({ type: 'CURSOR_UP' });
-      if (key.downArrow) dispatch({ type: 'CURSOR_DOWN' });
+      if (key.downArrow) dispatch({
+        type: 'CURSOR_DOWN',
+        max: state.updates.length + state.upToDate.length - 1,
+      });
 
       if (input === ' ') {
         // Find the mod at the cursor position in the combined updates+upToDate list
@@ -440,7 +443,7 @@ export function App({ dir }: AppProps) {
           {renderPhaseContent()}
         </Box>
       </LanguageProvider>
-      <Box flexShrink={0}>
+      <Box flexShrink={0} justifyContent="center">
         <ProgressFooter phase={state.phase} />
       </Box>
     </Box>

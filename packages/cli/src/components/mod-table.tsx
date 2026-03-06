@@ -92,7 +92,6 @@ export function ModTable({ mods, showSelection = false, cursorIndex, maxVisibleR
         {visibleMods.map((mod, i) => {
           const globalIdx = scrollOffset + i;
           const isCursorRow = cursorIndex !== undefined && globalIdx === cursorIndex;
-          const isEvenRow = globalIdx % 2 === 0;
 
           const prefix = showSelection ? (mod.selected !== false ? '● ' : '○ ') : '';
           const nameCell = padCell(prefix + mod.name, nameWidth);
@@ -109,7 +108,7 @@ export function ModTable({ mods, showSelection = false, cursorIndex, maxVisibleR
             <Box key={globalIdx}>
               <Text
                 backgroundColor={isCursorRow ? 'cyan' : undefined}
-                color={isCursorRow ? 'black' : (isEvenRow ? 'white' : 'gray')}
+                color={isCursorRow ? 'black' : undefined}
               >
                 {`│ ${nameCell} │ ${currentCell} │ ${targetCell} │ `}
               </Text>
@@ -121,7 +120,7 @@ export function ModTable({ mods, showSelection = false, cursorIndex, maxVisibleR
               </Text>
               <Text
                 backgroundColor={isCursorRow ? 'cyan' : undefined}
-                color={isCursorRow ? 'black' : (isEvenRow ? 'white' : 'gray')}
+                color={isCursorRow ? 'black' : undefined}
               >
                 {' │'}
               </Text>
