@@ -244,10 +244,20 @@ export function App({ dir }: AppProps) {
       dispatch({ type: 'DOWNLOAD_ALL_DONE' });
     };
 
+    const onIntegrityPass = (update: import('@upmods/core').ModUpdate) => {
+      dispatch({ type: 'INTEGRITY_RESULT', modName: update.mod.displayName, passed: true });
+    };
+
+    const onIntegrityFail = (update: import('@upmods/core').ModUpdate, _expected: string, _actual: string) => {
+      dispatch({ type: 'INTEGRITY_RESULT', modName: update.mod.displayName, passed: false });
+    };
+
     core.on('download:progress', onDownloadProgress);
     core.on('download:complete', onDownloadComplete);
     core.on('download:error', onDownloadError);
     core.on('all:done', onAllDone);
+    core.on('integrity:pass', onIntegrityPass);
+    core.on('integrity:fail', onIntegrityFail);
 
     core.downloadUpdates(selectedUpdates, outputDir).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -259,6 +269,8 @@ export function App({ dir }: AppProps) {
       core.off('download:complete', onDownloadComplete);
       core.off('download:error', onDownloadError);
       core.off('all:done', onAllDone);
+      core.off('integrity:pass', onIntegrityPass);
+      core.off('integrity:fail', onIntegrityFail);
     };
   }, [state.phase]);
 
@@ -283,12 +295,24 @@ export function App({ dir }: AppProps) {
         return selectedUpdates.map((u) => {
           const result = resultMap.get(u.mod.file.sha1);
           if (result) {
+            let status: string;
+            let statusColor: string;
+            if (result.integrityPassed === false) {
+              status = '✘ ERROR: checksum mismatch';
+              statusColor = 'red';
+            } else if (result.success) {
+              status = '✓ DONE';
+              statusColor = 'greenBright';
+            } else {
+              status = '✘ ERROR';
+              statusColor = 'red';
+            }
             return {
               name: u.mod.displayName,
               current: sanitizeVersionString(u.mod.installedVersionNumber),
               target: sanitizeVersionString(u.latestVersionNumber),
-              status: result.success ? '✓ DONE' : '✘ ERROR',
-              statusColor: result.success ? 'greenBright' : 'red',
+              status,
+              statusColor,
             };
           }
           return {

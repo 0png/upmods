@@ -67,7 +67,13 @@ export function DownloadPhase({ updates, downloadResults, downloadProgress }: Do
       <Static items={completed}>
         {(result) => (
           <Box key={result.update.mod.file.sha1}>
-            {result.success ? (
+            {result.integrityPassed === false ? (
+              <>
+                <Text color="red">  ✗ </Text>
+                <Text>{result.update.mod.displayName}</Text>
+                <Text dimColor>  {t.download.failed}: checksum mismatch</Text>
+              </>
+            ) : result.success ? (
               <>
                 <Text color="green">  ✓ </Text>
                 <Text>{result.update.mod.displayName}</Text>

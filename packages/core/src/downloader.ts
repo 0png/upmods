@@ -1,13 +1,20 @@
 import { request } from 'undici';
-import { createWriteStream } from 'node:fs';
+import { createWriteStream, createReadStream } from 'node:fs';
 import { rename, unlink } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { ensureDir } from 'fs-extra';
 import type { ModUpdate, DownloadResult } from './types.js';
 
 const USER_AGENT = 'upmods/0.1.0 (https://github.com/user/upmods)';
+
+async function computeSha512(filePath: string): Promise<string> {
+  const hash = createHash('sha512');
+  await pipeline(createReadStream(filePath), hash);
+  return hash.digest('hex');
+}
 
 /**
  * Download a single mod update to a file.
@@ -57,10 +64,39 @@ export async function downloadFile(
     await pipeline(body, progressTransform, writeStream);
     await rename(tempPath, finalPath);
 
+    // Integrity check: verify SHA-512 if Modrinth provided an expected hash
+    if (update.expectedSha512 !== undefined) {
+      const computedHash = await computeSha512(finalPath);
+      if (computedHash.toLowerCase() === update.expectedSha512.toLowerCase()) {
+        update.integrityPassed = true;
+        return {
+          update,
+          success: true,
+          outputPath: finalPath,
+          integrityPassed: true,
+        };
+      } else {
+        // Hash mismatch — delete the downloaded file, do not leave corrupt data
+        try {
+          await unlink(finalPath);
+        } catch {
+          // Ignore — file may have already been removed
+        }
+        update.status = 'integrity_failed';
+        return {
+          update,
+          success: false,
+          integrityPassed: false,
+          errorReason: `Checksum mismatch: expected ${update.expectedSha512} got ${computedHash}`,
+        };
+      }
+    }
+
     return {
       update,
       success: true,
       outputPath: finalPath,
+      integrityPassed: undefined,
     };
   } catch (err) {
     // Clean up temp file if it exists

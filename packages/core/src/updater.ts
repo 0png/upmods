@@ -167,8 +167,17 @@ export class UpmodsCore extends EventEmitter {
 
           if (result.success) {
             this.emit('download:complete', result);
+            if (result.integrityPassed === true) {
+              this.emit('integrity:pass', result.update);
+            }
           } else {
             this.emit('download:error', update, new Error(result.errorReason ?? 'Download failed'));
+            if (result.integrityPassed === false) {
+              const expected = update.expectedSha512 ?? '';
+              const actualMatch = /\bgot (.+)$/.exec(result.errorReason ?? '');
+              const actual = actualMatch?.[1] ?? '';
+              this.emit('integrity:fail', update, expected, actual);
+            }
           }
 
           return result;

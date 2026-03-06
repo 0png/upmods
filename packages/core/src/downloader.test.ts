@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { tmpdir } from 'node:os';
 import { mkdtemp, readFile, stat, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import path from 'node:path';
 import { downloadFile } from './downloader.js';
@@ -162,5 +163,73 @@ describe('downloadFile', () => {
     await downloadFile(update, tempDir, vi.fn());
 
     expect(mockEnsureDir).toHaveBeenCalledWith(tempDir);
+  });
+
+  it('returns integrityPassed=true when SHA-512 matches expectedSha512', async () => {
+    const content = Buffer.from('integrity-check-content');
+    const expectedSha512 = createHash('sha512').update(content).digest('hex');
+    const mockBody = Readable.from([content]);
+
+    mockRequest.mockResolvedValue({
+      statusCode: 200,
+      headers: { 'content-length': String(content.length) },
+      body: mockBody,
+    });
+
+    const update = makeUpdate('sha512-pass', 'integrity-pass-mod');
+    update.expectedSha512 = expectedSha512;
+
+    const result = await downloadFile(update, tempDir, vi.fn());
+
+    expect(result.success).toBe(true);
+    expect(result.integrityPassed).toBe(true);
+    expect(result.outputPath).toBeDefined();
+    // File should exist at outputPath
+    await expect(stat(result.outputPath!)).resolves.toBeTruthy();
+  });
+
+  it('returns integrityPassed=false and removes file when SHA-512 mismatches', async () => {
+    const content = Buffer.from('integrity-check-content');
+    const wrongHash = 'a'.repeat(128); // wrong 512-bit hex hash
+    const mockBody = Readable.from([content]);
+
+    mockRequest.mockResolvedValue({
+      statusCode: 200,
+      headers: { 'content-length': String(content.length) },
+      body: mockBody,
+    });
+
+    const update = makeUpdate('sha512-fail', 'integrity-fail-mod');
+    update.expectedSha512 = wrongHash;
+
+    const result = await downloadFile(update, tempDir, vi.fn());
+
+    expect(result.success).toBe(false);
+    expect(result.integrityPassed).toBe(false);
+    expect(result.errorReason).toContain('Checksum mismatch');
+    // File should have been deleted
+    const finalPath = path.join(tempDir, update.downloadFilename);
+    await expect(stat(finalPath)).rejects.toThrow();
+  });
+
+  it('skips integrity check and returns integrityPassed=undefined when expectedSha512 is absent', async () => {
+    const content = Buffer.from('no-hash-content');
+    const mockBody = Readable.from([content]);
+
+    mockRequest.mockResolvedValue({
+      statusCode: 200,
+      headers: { 'content-length': String(content.length) },
+      body: mockBody,
+    });
+
+    const update = makeUpdate('no-hash', 'no-hash-mod');
+    // expectedSha512 intentionally not set
+
+    const result = await downloadFile(update, tempDir, vi.fn());
+
+    expect(result.success).toBe(true);
+    expect(result.integrityPassed).toBeUndefined();
+    expect(result.outputPath).toBeDefined();
+    await expect(stat(result.outputPath!)).resolves.toBeTruthy();
   });
 });

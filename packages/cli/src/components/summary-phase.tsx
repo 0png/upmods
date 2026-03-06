@@ -11,8 +11,9 @@ export interface SummaryPhaseProps {
 export function SummaryPhase({ downloadResults, outputDir }: SummaryPhaseProps) {
   const { t } = useLanguage();
 
+  const checksumFailures = downloadResults.filter((r) => r.integrityPassed === false);
   const successful = downloadResults.filter((r) => r.success);
-  const failed = downloadResults.filter((r) => !r.success);
+  const failed = downloadResults.filter((r) => !r.success && r.integrityPassed !== false);
 
   return (
     <Box flexDirection="column" paddingY={1}>
@@ -53,6 +54,22 @@ export function SummaryPhase({ downloadResults, outputDir }: SummaryPhaseProps) 
               <Text color="red">  ✗ </Text>
               <Text>{result.update.mod.displayName}</Text>
               <Text dimColor>  {result.errorReason ?? 'unknown error'}</Text>
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      {/* Checksum failures (integrity validation failed — file not saved) */}
+      {checksumFailures.length > 0 && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text bold underline color="red">
+            Checksum failures (file not saved)
+          </Text>
+          {checksumFailures.map((result) => (
+            <Box key={result.update.mod.file.sha1}>
+              <Text color="red">  ✗ </Text>
+              <Text>{result.update.mod.displayName}</Text>
+              <Text dimColor>  checksum mismatch — downloaded file discarded</Text>
             </Box>
           ))}
         </Box>
