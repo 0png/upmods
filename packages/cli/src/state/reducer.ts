@@ -89,12 +89,11 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case 'SCAN_COMPLETE':
       return { ...state, phase: 'scan_complete', scanResult: action.result };
     case 'PROCEED_TO_VERSION_SELECT':
-      return { ...state, phase: 'version_select' };
+      return { ...state, phase: 'version_select', selectedMCVersionIndex: 0 };
     case 'MC_VERSIONS_LOADED':
       return {
         ...state,
         mcVersions: action.versions,
-        selectedMCVersionIndex: 0,
       };
     case 'CURSOR_UP':
       return {

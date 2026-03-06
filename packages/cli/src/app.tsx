@@ -45,8 +45,13 @@ export function App({ dir }: AppProps) {
     if (input === 'l' || input === 'L') dispatch({ type: 'TOGGLE_LANGUAGE' });
 
     // Proceed from scan summary to version select
-    if (state.phase === 'scan_complete' && key.return) {
-      dispatch({ type: 'PROCEED_TO_VERSION_SELECT' });
+    if (state.phase === 'scan_complete') {
+      if (key.upArrow) dispatch({ type: 'CURSOR_UP' });
+      if (key.downArrow) dispatch({
+        type: 'CURSOR_DOWN',
+        max: (state.scanResult?.identified.length ?? 1) - 1,
+      });
+      if (key.return) dispatch({ type: 'PROCEED_TO_VERSION_SELECT' });
     }
 
     // Version select navigation
@@ -325,7 +330,7 @@ export function App({ dir }: AppProps) {
       return (
         <Box flexDirection="column">
           {rows.length > 0 ? (
-            <ModTable mods={rows} maxVisibleRows={availableRows} />
+            <ModTable mods={rows} maxVisibleRows={availableRows} cursorIndex={state.selectedMCVersionIndex} />
           ) : (
             <ScanPhase state={state} />
           )}
