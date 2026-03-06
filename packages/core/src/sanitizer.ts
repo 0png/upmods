@@ -1,7 +1,7 @@
 export const SANITIZER_PATTERNS: RegExp[] = [
-  /[+\-](fabric|forge|neoforge|quilt)/gi,
-  /(fabric|forge|neoforge|quilt)[+\-]/gi,
-  /[+\-]?mc\d[\d.]*/gi,
+  /[-+](fabric|forge|neoforge|quilt)/gi,
+  /(fabric|forge|neoforge|quilt)[-+]/gi,
+  /[-+]?mc\d[\d.]*/gi,
   /for[-_]mc\d[\d.]*/gi,
 ];
 
