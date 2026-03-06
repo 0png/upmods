@@ -41,6 +41,7 @@ export type AppAction =
   | { type: 'MC_VERSIONS_LOADED'; versions: MCVersion[] }
   | { type: 'CURSOR_UP' }
   | { type: 'CURSOR_DOWN'; max?: number }
+  | { type: 'SET_CURSOR'; index: number }
   | { type: 'SELECT_MC_VERSION' }
   | { type: 'CHECK_COMPLETE'; updates: ModUpdate[]; upToDate: Mod[] }
   | { type: 'START_DOWNLOAD' }
@@ -95,6 +96,8 @@ export function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         mcVersions: action.versions,
       };
+    case 'SET_CURSOR':
+      return { ...state, selectedMCVersionIndex: action.index };
     case 'CURSOR_UP':
       return {
         ...state,

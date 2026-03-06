@@ -46,11 +46,11 @@ export function App({ dir }: AppProps) {
 
     // Proceed from scan summary to version select
     if (state.phase === 'scan_complete') {
-      if (key.upArrow) dispatch({ type: 'CURSOR_UP' });
-      if (key.downArrow) dispatch({
-        type: 'CURSOR_DOWN',
-        max: (state.scanResult?.identified.length ?? 1) - 1,
-      });
+      const total = state.scanResult?.identified.length ?? 0;
+      if (total > 0) {
+        if (key.upArrow) dispatch({ type: 'SET_CURSOR', index: (state.selectedMCVersionIndex - 1 + total) % total });
+        if (key.downArrow) dispatch({ type: 'SET_CURSOR', index: (state.selectedMCVersionIndex + 1) % total });
+      }
       if (key.return) dispatch({ type: 'PROCEED_TO_VERSION_SELECT' });
     }
 
@@ -63,11 +63,11 @@ export function App({ dir }: AppProps) {
 
     // T014: Multi-select phase — Space toggle, Enter confirm, arrows navigate
     if (state.phase === 'check_complete') {
-      if (key.upArrow) dispatch({ type: 'CURSOR_UP' });
-      if (key.downArrow) dispatch({
-        type: 'CURSOR_DOWN',
-        max: state.updates.length + state.upToDate.length - 1,
-      });
+      const total = state.updates.length + state.upToDate.length;
+      if (total > 0) {
+        if (key.upArrow) dispatch({ type: 'SET_CURSOR', index: (state.selectedMCVersionIndex - 1 + total) % total });
+        if (key.downArrow) dispatch({ type: 'SET_CURSOR', index: (state.selectedMCVersionIndex + 1) % total });
+      }
 
       if (input === ' ') {
         // Find the mod at the cursor position in the combined updates+upToDate list

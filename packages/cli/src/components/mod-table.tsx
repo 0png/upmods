@@ -93,8 +93,9 @@ export function ModTable({ mods, showSelection = false, cursorIndex, maxVisibleR
           const globalIdx = scrollOffset + i;
           const isCursorRow = cursorIndex !== undefined && globalIdx === cursorIndex;
 
+          const rowNum = `${globalIdx + 1}. `;
           const prefix = showSelection ? (mod.selected !== false ? '● ' : '○ ') : '';
-          const nameCell = padCell(prefix + mod.name, nameWidth);
+          const nameCell = padCell(rowNum + prefix + mod.name, nameWidth);
           const currentCell = padCell(mod.current, currentWidth);
           const targetCell = padCell(mod.target, targetWidth);
           const statusCell = padCell(mod.status, statusWidth);
