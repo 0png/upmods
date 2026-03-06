@@ -265,8 +265,8 @@ export function App({ dir }: AppProps) {
   const buildModRows = (): ModRow[] => {
     switch (state.phase) {
       case 'scan_complete':
-        return (state.scanResult?.identified ?? []).map((mod) => ({
-          name: mod.displayName,
+        return (state.scanResult?.identified ?? []).map((mod, i) => ({
+          name: (i === state.selectedMCVersionIndex ? '❯ ' : '  ') + mod.displayName,
           current: sanitizeVersionString(mod.installedVersionNumber),
           target: '—',
           status: 'IDENTIFIED',
