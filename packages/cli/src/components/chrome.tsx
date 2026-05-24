@@ -15,6 +15,7 @@ interface ScreenFrameProps {
   subtitle?: string;
   summary?: React.ReactNode;
   hotkeys?: HotkeyItem[];
+  workflowStep?: number | null;
   children?: React.ReactNode;
 }
 
@@ -31,11 +32,13 @@ export function ScreenFrame({
   subtitle,
   summary,
   hotkeys = [],
+  workflowStep,
   children,
 }: ScreenFrameProps) {
   return (
     <Box flexDirection="column" paddingY={1}>
       <BrandHeader title={title} subtitle={subtitle} />
+      <WorkflowBar currentStep={workflowStep} />
       <Box flexDirection="column" marginTop={1}>
         {children}
       </Box>
@@ -67,6 +70,51 @@ export function BrandHeader({ title, subtitle }: BrandHeaderProps) {
           <Text dimColor>{subtitle}</Text>
         </Box>
       ) : null}
+    </Box>
+  );
+}
+
+interface WorkflowBarProps {
+  currentStep?: number | null;
+}
+
+function WorkflowBar({ currentStep }: WorkflowBarProps) {
+  const { t } = useLanguage();
+
+  if (!currentStep) return null;
+
+  const steps = [
+    t.common.progress.scan,
+    t.common.progress.versionSelect,
+    t.common.progress.check,
+    t.common.progress.download,
+    t.common.progress.done,
+  ];
+  const stepLabel = t.common.progress.step
+    .replace('{current}', String(currentStep))
+    .replace('{total}', String(steps.length));
+
+  return (
+    <Box marginTop={1} flexDirection="column">
+      <Text color="cyan">{stepLabel}</Text>
+      <Box flexWrap="wrap">
+        {steps.map((label, index) => {
+          const step = index + 1;
+          const isCompleted = step < currentStep;
+          const isActive = step === currentStep;
+          const tone = isActive ? 'cyan' : isCompleted ? 'green' : 'gray';
+          const marker = isCompleted ? '●' : isActive ? '◉' : '○';
+
+          return (
+            <Box key={label} marginRight={index === steps.length - 1 ? 0 : 1}>
+              <Text color={tone}>
+                {marker} {label}
+              </Text>
+              {index < steps.length - 1 ? <Text dimColor>{' ->'}</Text> : null}
+            </Box>
+          );
+        })}
+      </Box>
     </Box>
   );
 }

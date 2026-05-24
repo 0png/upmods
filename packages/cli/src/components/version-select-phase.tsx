@@ -9,9 +9,14 @@ import type { MCVersion } from '@upmods/core';
 export interface VersionSelectPhaseProps {
   versions: MCVersion[];
   selectedIndex: number;
+  workflowStep: number | null;
 }
 
-export function VersionSelectPhase({ versions, selectedIndex }: VersionSelectPhaseProps) {
+export function VersionSelectPhase({
+  versions,
+  selectedIndex,
+  workflowStep,
+}: VersionSelectPhaseProps) {
   const { t } = useLanguage();
 
   const hotkeys: HotkeyItem[] = [
@@ -32,6 +37,7 @@ export function VersionSelectPhase({ versions, selectedIndex }: VersionSelectPha
       subtitle={t.versionSelect.subtitle}
       summary={summary}
       hotkeys={hotkeys}
+      workflowStep={workflowStep}
     >
       <Box flexDirection="column">
         <Text bold dimColor>Release</Text>

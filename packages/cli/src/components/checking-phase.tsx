@@ -4,7 +4,11 @@ import { ScreenFrame, type HotkeyItem } from './chrome.js';
 import { useLanguage } from '../i18n/use-language.js';
 import { useSpinner } from '../hooks/use-spinner.js';
 
-export function CheckingPhase() {
+interface CheckingPhaseProps {
+  workflowStep: number | null;
+}
+
+export function CheckingPhase({ workflowStep }: CheckingPhaseProps) {
   const { t } = useLanguage();
   const spinnerChar = useSpinner(true);
 
@@ -19,6 +23,7 @@ export function CheckingPhase() {
       subtitle={t.checking.subtitle}
       summary={t.checking.summary}
       hotkeys={hotkeys}
+      workflowStep={workflowStep}
     >
       <Text color="yellow">{spinnerChar} </Text>
       <Text>{t.checking.inProgress}</Text>

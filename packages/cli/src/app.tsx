@@ -10,6 +10,7 @@ import { CheckPhase } from './components/check-phase.js';
 import { CheckingPhase } from './components/checking-phase.js';
 import { DownloadPhase } from './components/download-phase.js';
 import { SummaryPhase } from './components/summary-phase.js';
+import { getWorkflowStep } from './state/workflow.js';
 import { UpmodsCore } from '@upmods/core';
 
 interface AppProps {
@@ -29,6 +30,10 @@ export function App({ dir }: AppProps) {
     if (state.phase === 'scan_complete' && key.return) {
       dispatch({ type: 'PROCEED_TO_VERSION_SELECT' });
     }
+    if (state.phase === 'scan_complete') {
+      if (key.upArrow) dispatch({ type: 'SCAN_CURSOR_UP' });
+      if (key.downArrow) dispatch({ type: 'SCAN_CURSOR_DOWN' });
+    }
 
     // Version select navigation
     if (state.phase === 'version_select') {
@@ -38,8 +43,23 @@ export function App({ dir }: AppProps) {
     }
 
     // Download trigger
-    if (state.phase === 'check_complete' && (input === 'u' || input === 'U')) {
-      dispatch({ type: 'START_DOWNLOAD' });
+    if (state.phase === 'check_complete') {
+      if (key.upArrow) dispatch({ type: 'CHECK_CURSOR_UP' });
+      if (key.downArrow) dispatch({ type: 'CHECK_CURSOR_DOWN' });
+      if (input === ' ') dispatch({ type: 'TOGGLE_UPDATE_SELECTION' });
+      if (input === 'a' || input === 'A') dispatch({ type: 'SELECT_ALL_UPDATES' });
+      if (input === 'n' || input === 'N') dispatch({ type: 'CLEAR_ALL_UPDATES' });
+      if (input === 'u' || input === 'U') dispatch({ type: 'START_DOWNLOAD' });
+    }
+
+    if (state.phase === 'downloading') {
+      if (key.upArrow) dispatch({ type: 'DOWNLOAD_CURSOR_UP' });
+      if (key.downArrow) dispatch({ type: 'DOWNLOAD_CURSOR_DOWN' });
+    }
+
+    if (state.phase === 'done') {
+      if (key.upArrow) dispatch({ type: 'SUMMARY_CURSOR_UP' });
+      if (key.downArrow) dispatch({ type: 'SUMMARY_CURSOR_DOWN' });
     }
   });
 
@@ -153,7 +173,7 @@ export function App({ dir }: AppProps) {
     core.on('download:error', onDownloadError);
     core.on('all:done', onAllDone);
 
-    core.downloadUpdates(state.updates, outputDir).catch((err: unknown) => {
+    core.downloadUpdates(state.activeDownloads, outputDir).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       dispatch({ type: 'ERROR', message });
     });
@@ -167,32 +187,45 @@ export function App({ dir }: AppProps) {
   }, [state.phase]);
 
   const renderPhase = () => {
+    const workflowStep = getWorkflowStep(state.phase);
+
     if (state.phase === 'error') {
       return <ErrorPhase state={state} />;
     }
     if (state.phase === 'scanning' || state.phase === 'identifying' || state.phase === 'scan_complete') {
-      return <ScanPhase state={state} />;
+      return <ScanPhase state={state} workflowStep={workflowStep} />;
     }
     if (state.phase === 'version_select') {
       return (
         <VersionSelectPhase
           versions={state.mcVersions}
           selectedIndex={state.selectedMCVersionIndex}
+          workflowStep={workflowStep}
         />
       );
     }
     if (state.phase === 'checking') {
-      return <CheckingPhase />;
+      return <CheckingPhase workflowStep={workflowStep} />;
     }
     if (state.phase === 'check_complete') {
-      return <CheckPhase updates={state.updates} upToDate={state.upToDate} />;
+      return (
+        <CheckPhase
+          updates={state.updates}
+          selectedUpdates={state.selectedUpdates}
+          checkCursorIndex={state.checkCursorIndex}
+          upToDate={state.upToDate}
+          workflowStep={workflowStep}
+        />
+      );
     }
     if (state.phase === 'downloading') {
       return (
         <DownloadPhase
-          updates={state.updates}
+          updates={state.activeDownloads}
           downloadResults={state.downloadResults}
           downloadProgress={state.downloadProgress}
+          downloadCursorIndex={state.downloadCursorIndex}
+          workflowStep={workflowStep}
         />
       );
     }
@@ -201,6 +234,8 @@ export function App({ dir }: AppProps) {
         <SummaryPhase
           downloadResults={state.downloadResults}
           outputDir={path.join(dir, 'mods-updated')}
+          summaryCursorIndex={state.summaryCursorIndex}
+          workflowStep={workflowStep}
         />
       );
     }

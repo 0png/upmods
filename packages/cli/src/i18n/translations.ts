@@ -2,6 +2,18 @@ export interface Translations {
   common: {
     brand: string;
     nextLanguage: string;
+    list: {
+      position: string;
+      overflow: string;
+    };
+    progress: {
+      step: string;
+      scan: string;
+      versionSelect: string;
+      check: string;
+      download: string;
+      done: string;
+    };
     hotkeys: {
       quit: string;
       language: string;
@@ -9,6 +21,10 @@ export interface Translations {
       continue: string;
       confirm: string;
       navigate: string;
+      toggle: string;
+      selectAll: string;
+      selectNone: string;
+      scroll: string;
     };
     status: {
       ready: string;
@@ -30,6 +46,8 @@ export interface Translations {
     summaryScanning: string;
     summaryComplete: string;
     summaryEmpty: string;
+    moreItems: string;
+    browsing: string;
   };
   versionSelect: {
     title: string;
@@ -45,6 +63,7 @@ export interface Translations {
   check: {
     title: string;
     subtitle: string;
+    pick: string;
     modName: string;
     installed: string;
     available: string;
@@ -55,12 +74,17 @@ export interface Translations {
     allUpToDate: string;
     updatesFound: string;
     modsChecked: string;
+    selectionSummary: string;
+    noneSelected: string;
+    upToDateSummary: string;
+    browsing: string;
   };
   download: {
     title: string;
     subtitle: string;
     summary: string;
     current: string;
+    browsing: string;
   };
   summary: {
     title: string;
@@ -68,6 +92,8 @@ export interface Translations {
     successSummary: string;
     outputDir: string;
     failedSection: string;
+    failedSummary: string;
+    browsing: string;
   };
   error: {
     title: string;
@@ -81,6 +107,18 @@ export const en: Translations = {
   common: {
     brand: 'upmods',
     nextLanguage: '中文',
+    list: {
+      position: '{current}/{total}',
+      overflow: '↑ {above} above · ↓ {below} below',
+    },
+    progress: {
+      step: 'Step {current}/{total}',
+      scan: 'Scan',
+      versionSelect: 'Target',
+      check: 'Check',
+      download: 'Download',
+      done: 'Done',
+    },
     hotkeys: {
       quit: 'Quit',
       language: '中文',
@@ -88,6 +126,10 @@ export const en: Translations = {
       continue: 'Continue',
       confirm: 'Confirm',
       navigate: 'Move',
+      toggle: 'Toggle',
+      selectAll: 'Select all',
+      selectNone: 'Clear all',
+      scroll: 'Scroll',
     },
     status: {
       ready: 'Ready',
@@ -109,6 +151,8 @@ export const en: Translations = {
     summaryScanning: 'Scanning your mods folder…',
     summaryComplete: '{identified} identified · {unidentified} unidentified',
     summaryEmpty: 'No mod archives were found.',
+    moreItems: '… and {count} more',
+    browsing: 'Use arrow keys to browse identified and unidentified mods.',
   },
   versionSelect: {
     title: 'Target Version',
@@ -124,6 +168,7 @@ export const en: Translations = {
   check: {
     title: 'Updates',
     subtitle: 'Review available updates before downloading.',
+    pick: 'Pick',
     modName: 'Mod',
     installed: 'Installed',
     available: 'Available',
@@ -134,12 +179,17 @@ export const en: Translations = {
     allUpToDate: 'All mods are up to date.',
     updatesFound: '{count} updates available',
     modsChecked: '{count} mods checked',
+    selectionSummary: '{selected}/{count} selected for download',
+    noneSelected: '0/{count} selected · choose at least one update',
+    upToDateSummary: '{count} mods already up to date',
+    browsing: 'Browsing {current}/{total}',
   },
   download: {
     title: 'Downloads',
     subtitle: 'Fetch update files into mods-updated.',
     summary: '{done} done · {failed} failed · {pending} pending',
     current: 'Current',
+    browsing: 'Use arrow keys to browse the download list.',
   },
   summary: {
     title: 'Done',
@@ -147,6 +197,8 @@ export const en: Translations = {
     successSummary: '{count} mods updated',
     outputDir: 'Saved to:',
     failedSection: 'Failed downloads',
+    failedSummary: '{count} failed downloads',
+    browsing: 'Browsing {current}/{total}',
   },
   error: {
     title: 'Error',
@@ -160,6 +212,18 @@ export const zhTW: Translations = {
   common: {
     brand: 'upmods',
     nextLanguage: 'English',
+    list: {
+      position: '{current}/{total}',
+      overflow: '↑ 上方 {above} 筆 · ↓ 下方 {below} 筆',
+    },
+    progress: {
+      step: '步驟 {current}/{total}',
+      scan: '掃描',
+      versionSelect: '選版本',
+      check: '檢查',
+      download: '下載',
+      done: '完成',
+    },
     hotkeys: {
       quit: '結束',
       language: 'English',
@@ -167,6 +231,10 @@ export const zhTW: Translations = {
       continue: '繼續',
       confirm: '確認',
       navigate: '移動',
+      toggle: '切換',
+      selectAll: '全選',
+      selectNone: '全不選',
+      scroll: '捲動',
     },
     status: {
       ready: '就緒',
@@ -188,6 +256,8 @@ export const zhTW: Translations = {
     summaryScanning: '正在掃描你的 mods 資料夾…',
     summaryComplete: '已識別 {identified} 個 · 未識別 {unidentified} 個',
     summaryEmpty: '沒有找到任何模組封裝檔。',
+    moreItems: '… 另外還有 {count} 個',
+    browsing: '可用方向鍵瀏覽已識別與未識別項目。',
   },
   versionSelect: {
     title: '目標版本',
@@ -203,6 +273,7 @@ export const zhTW: Translations = {
   check: {
     title: '更新檢查',
     subtitle: '確認可用更新後再開始下載。',
+    pick: '選取',
     modName: '模組',
     installed: '已安裝',
     available: '可用版本',
@@ -213,12 +284,17 @@ export const zhTW: Translations = {
     allUpToDate: '所有模組都已是最新版本。',
     updatesFound: '可更新模組：{count}',
     modsChecked: '已檢查 {count} 個模組',
+    selectionSummary: '已選取 {selected}/{count} 個更新',
+    noneSelected: '已選取 0/{count} 個，請至少選一個更新',
+    upToDateSummary: '已有 {count} 個模組是最新版本',
+    browsing: '目前位置 {current}/{total}',
   },
   download: {
     title: '下載',
     subtitle: '把更新檔下載到 mods-updated。',
     summary: '完成 {done} 個 · 失敗 {failed} 個 · 剩餘 {pending} 個',
     current: '目前',
+    browsing: '可用方向鍵瀏覽下載清單。',
   },
   summary: {
     title: '完成',
@@ -226,6 +302,8 @@ export const zhTW: Translations = {
     successSummary: '已更新 {count} 個模組',
     outputDir: '儲存至：',
     failedSection: '下載失敗',
+    failedSummary: '下載失敗 {count} 個',
+    browsing: '目前位置 {current}/{total}',
   },
   error: {
     title: '錯誤',
