@@ -1,6 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { Box, Text, Static } from 'ink';
+import React from 'react';
+import { Box, Static, Text } from 'ink';
+import { ScreenFrame, type HotkeyItem } from './chrome.js';
 import { useLanguage } from '../i18n/use-language.js';
+import { useSpinner } from '../hooks/use-spinner.js';
+import { fitColumn } from '../utils/display.js';
 import type { ModUpdate, DownloadResult } from '@upmods/core';
 
 export interface DownloadPhaseProps {
@@ -9,22 +12,10 @@ export interface DownloadPhaseProps {
   downloadProgress: Record<string, { bytes: number; total: number }>;
 }
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const SPINNER_INTERVAL_MS = 80;
+const MOD_WIDTH = 24;
+const DETAIL_WIDTH = 34;
 
-function useSpinner(active: boolean): string {
-  const [frame, setFrame] = useState(0);
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => {
-      setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
-    }, SPINNER_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [active]);
-  return SPINNER_FRAMES[frame] ?? '⠋';
-}
-
-function renderProgressBar(bytes: number, total: number, width = 16): string {
+function renderProgressBar(bytes: number, total: number, width = 12): string {
   const ratio = total > 0 ? Math.min(bytes / total, 1) : 0;
   const filled = Math.round(ratio * width);
   const empty = width - filled;
@@ -41,74 +32,70 @@ function formatBytes(bytes: number): string {
 export function DownloadPhase({ updates, downloadResults, downloadProgress }: DownloadPhaseProps) {
   const { t } = useLanguage();
 
-  // Build a set of completed sha1s for quick lookup
-  const completedSha1s = new Set(downloadResults.map((r) => r.update.mod.file.sha1));
-
-  // Separate completed (done/error) from in-progress
+  const completedSha1s = new Set(downloadResults.map((result) => result.update.mod.file.sha1));
   const completed = downloadResults;
-  const inProgress = updates.filter((u) => !completedSha1s.has(u.mod.file.sha1));
+  const inProgress = updates.filter((update) => !completedSha1s.has(update.mod.file.sha1));
+  const failedCount = completed.filter((result) => !result.success).length;
+  const doneCount = completed.filter((result) => result.success).length;
+  const pendingCount = inProgress.length;
+  const spinnerChar = useSpinner(pendingCount > 0);
 
-  const isActive = inProgress.length > 0;
-  const spinnerChar = useSpinner(isActive);
+  const hotkeys: HotkeyItem[] = [
+    { key: 'Q', label: t.common.hotkeys.quit, tone: 'muted' },
+  ];
+
+  const summary = t.download.summary
+    .replace('{done}', String(doneCount))
+    .replace('{failed}', String(failedCount))
+    .replace('{pending}', String(pendingCount));
 
   return (
-    <Box flexDirection="column" paddingY={1}>
-      {/* Header */}
-      <Box marginBottom={1}>
-        {isActive ? (
-          <Text color="cyan">{spinnerChar} </Text>
-        ) : (
-          <Text color="green">✓ </Text>
-        )}
-        <Text bold>{t.download.title}</Text>
-      </Box>
-
-      {/* Completed and failed rows — Static so they never re-render */}
+    <ScreenFrame
+      title={t.download.title}
+      subtitle={t.download.subtitle}
+      summary={summary}
+      hotkeys={hotkeys}
+    >
       <Static items={completed}>
         {(result) => (
           <Box key={result.update.mod.file.sha1}>
             {result.success ? (
               <>
-                <Text color="green">  ✓ </Text>
-                <Text>{result.update.mod.displayName}</Text>
-                <Text dimColor>  {result.update.latestVersionNumber}  {t.download.done}</Text>
+                <Text color="green">✓ </Text>
+                <Text>{fitColumn(result.update.mod.displayName, MOD_WIDTH)}</Text>
+                <Text dimColor>{fitColumn(result.update.latestVersionNumber, DETAIL_WIDTH)}</Text>
               </>
             ) : (
               <>
-                <Text color="red">  ✗ </Text>
-                <Text>{result.update.mod.displayName}</Text>
-                <Text dimColor>  {t.download.failed}: {result.errorReason ?? 'unknown error'}</Text>
+                <Text color="red">✗ </Text>
+                <Text>{fitColumn(result.update.mod.displayName, MOD_WIDTH)}</Text>
+                <Text dimColor>{fitColumn(result.errorReason ?? t.error.unknownError, DETAIL_WIDTH)}</Text>
               </>
             )}
           </Box>
         )}
       </Static>
 
-      {/* In-progress rows — live, re-renders on state changes */}
       {inProgress.map((update) => {
         const progress = downloadProgress[update.mod.file.sha1];
+
         return (
           <Box key={update.mod.file.sha1}>
-            <Text color="yellow">  {spinnerChar} </Text>
-            <Text>{update.mod.displayName}</Text>
+            <Text color="yellow">{spinnerChar} </Text>
+            <Text>{fitColumn(update.mod.displayName, MOD_WIDTH)}</Text>
             {progress ? (
               <Text dimColor>
-                {'  '}
-                {renderProgressBar(progress.bytes, progress.total)}
-                {'  '}
-                {formatBytes(progress.bytes)} / {formatBytes(progress.total)}
+                {fitColumn(
+                  `${renderProgressBar(progress.bytes, progress.total)} ${formatBytes(progress.bytes)} / ${formatBytes(progress.total)}`,
+                  DETAIL_WIDTH,
+                )}
               </Text>
             ) : (
-              <Text dimColor>  {t.download.waiting}</Text>
+              <Text dimColor>{fitColumn(t.common.status.waiting, DETAIL_WIDTH)}</Text>
             )}
           </Box>
         );
       })}
-
-      {/* Footer hint */}
-      <Box marginTop={1}>
-        <Text dimColor>{t.common.quitHint}</Text>
-      </Box>
-    </Box>
+    </ScreenFrame>
   );
 }

@@ -1,25 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Box, Text } from 'ink';
+import { ScreenFrame, type HotkeyItem } from './chrome.js';
 import { useLanguage } from '../i18n/use-language.js';
+import { useSpinner } from '../hooks/use-spinner.js';
+import { truncateText } from '../utils/display.js';
 import type { AppState } from '../state/reducer.js';
-
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const SPINNER_INTERVAL_MS = 80;
 
 interface ScanPhaseProps {
   state: AppState;
-}
-
-function useSpinner(active: boolean): string {
-  const [frame, setFrame] = useState(0);
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => {
-      setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
-    }, SPINNER_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [active]);
-  return SPINNER_FRAMES[frame];
 }
 
 export function ScanPhase({ state }: ScanPhaseProps) {
@@ -27,26 +15,52 @@ export function ScanPhase({ state }: ScanPhaseProps) {
   const isScanning =
     state.phase === 'scanning' || state.phase === 'identifying';
   const spinnerChar = useSpinner(isScanning);
-
   const scanResult = state.scanResult;
 
-  // Empty directory state
+  const hotkeys: HotkeyItem[] = state.phase === 'scan_complete' && scanResult && scanResult.totalFiles > 0
+    ? [
+        { key: 'Enter', label: t.common.hotkeys.continue, tone: 'primary' },
+        { key: 'Q', label: t.common.hotkeys.quit, tone: 'muted' },
+        { key: 'L', label: t.common.hotkeys.language, tone: 'muted' },
+      ]
+    : [
+        { key: 'Q', label: t.common.hotkeys.quit, tone: 'muted' },
+        { key: 'L', label: t.common.hotkeys.language, tone: 'muted' },
+      ];
+
+  const summary = !scanResult
+    ? t.scan.summaryScanning
+    : scanResult.totalFiles === 0
+      ? t.scan.summaryEmpty
+      : t.scan.summaryComplete
+          .replace('{identified}', String(scanResult.identified.length))
+          .replace('{unidentified}', String(scanResult.unidentified.length));
+
   if (!isScanning && scanResult && scanResult.totalFiles === 0) {
     return (
-      <Box flexDirection="column" paddingY={1}>
-        <Text>{t.scan.emptyDir} {scanResult.directory}</Text>
-        <Text>{t.scan.emptyDirHint}</Text>
-        <Text dimColor>{t.common.quitHint}</Text>
-      </Box>
+      <ScreenFrame
+        title={t.scan.title}
+        subtitle={t.scan.subtitle}
+        summary={summary}
+        hotkeys={hotkeys}
+      >
+        <Text color="yellow">{t.scan.emptyDir}</Text>
+        <Text>{scanResult.directory}</Text>
+        <Text dimColor>{t.scan.emptyDirHint}</Text>
+      </ScreenFrame>
     );
   }
 
   return (
-    <Box flexDirection="column" paddingY={1}>
-      {/* Header with spinner or done indicator */}
-      <Box>
+    <ScreenFrame
+      title={t.scan.title}
+      subtitle={t.scan.subtitle}
+      summary={summary}
+      hotkeys={hotkeys}
+    >
+      <Box marginBottom={1}>
         {isScanning ? (
-          <Text color="cyan">{spinnerChar} </Text>
+          <Text color="yellow">{spinnerChar} </Text>
         ) : (
           <Text color="green">✓ </Text>
         )}
@@ -55,54 +69,39 @@ export function ScanPhase({ state }: ScanPhaseProps) {
             ? t.scan.identifying
             : isScanning
               ? t.scan.scanning
-              : t.scan.title}
+              : t.common.status.ready}
         </Text>
       </Box>
 
-      {/* Scan progress */}
-      {isScanning && scanResult === null && state.phase === 'scanning' && (
-        <Text dimColor>{t.scan.scanning}</Text>
-      )}
-
-      {/* Identified mods section */}
-      {scanResult && scanResult.identified.length > 0 && (
-        <Box flexDirection="column" marginTop={1}>
-          <Text bold underline>{t.scan.identifiedSection}</Text>
+      {scanResult && scanResult.identified.length > 0 ? (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text bold dimColor>
+            {t.scan.identifiedSection}
+          </Text>
           {scanResult.identified.map((mod) => (
             <Box key={mod.file.path}>
-              <Text color="green">  ✓ </Text>
-              <Text>{mod.displayName}</Text>
-              <Text dimColor>  {mod.installedVersionNumber}</Text>
+              <Text color="green">✓ </Text>
+              <Text>{truncateText(mod.displayName, 34)}</Text>
+              <Text dimColor>  {truncateText(mod.installedVersionNumber, 18)}</Text>
             </Box>
           ))}
         </Box>
-      )}
+      ) : null}
 
-      {/* Unidentified files section */}
-      {scanResult && scanResult.unidentified.length > 0 && (
-        <Box flexDirection="column" marginTop={1}>
-          <Text bold underline>{t.scan.unidentifiedSection}</Text>
+      {scanResult && scanResult.unidentified.length > 0 ? (
+        <Box flexDirection="column">
+          <Text bold dimColor>
+            {t.scan.unidentifiedSection}
+          </Text>
           {scanResult.unidentified.map((file) => (
             <Box key={file.path}>
-              <Text color="yellow">  ? </Text>
-              <Text>{file.filename}</Text>
+              <Text color="yellow">? </Text>
+              <Text>{truncateText(file.filename, 34)}</Text>
               <Text dimColor>  {t.scan.unidentifiedLabel}</Text>
             </Box>
           ))}
         </Box>
-      )}
-
-      {/* Footer hints */}
-      <Box marginTop={1}>
-        {state.phase === 'scan_complete' && scanResult && scanResult.totalFiles > 0 ? (
-        <Text dimColor>{t.scan.continueHint}  {t.common.quitHint}  {t.common.langToggle}</Text>
-        ) : (
-          <>
-            <Text dimColor>{t.common.quitHint}</Text>
-            <Text dimColor>  {t.common.langToggle}</Text>
-          </>
-        )}
-      </Box>
-    </Box>
+      ) : null}
+    </ScreenFrame>
   );
 }

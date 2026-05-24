@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "tsx src/cli.tsx",
     "build": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/"
   },

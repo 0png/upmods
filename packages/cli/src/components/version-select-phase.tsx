@@ -1,7 +1,9 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { SelectList } from './select-list.js';
+import { ScreenFrame, type HotkeyItem } from './chrome.js';
 import { useLanguage } from '../i18n/use-language.js';
+import { fitColumn } from '../utils/display.js';
 import type { MCVersion } from '@upmods/core';
 
 export interface VersionSelectPhaseProps {
@@ -12,28 +14,40 @@ export interface VersionSelectPhaseProps {
 export function VersionSelectPhase({ versions, selectedIndex }: VersionSelectPhaseProps) {
   const { t } = useLanguage();
 
+  const hotkeys: HotkeyItem[] = [
+    { key: '↑↓', label: t.common.hotkeys.navigate, tone: 'primary' },
+    { key: 'Enter', label: t.common.hotkeys.confirm, tone: 'primary' },
+    { key: 'Q', label: t.common.hotkeys.quit, tone: 'muted' },
+    { key: 'L', label: t.common.hotkeys.language, tone: 'muted' },
+  ];
+
+  const selectedVersion = versions[selectedIndex]?.version;
+  const summary = selectedVersion
+    ? `${t.versionSelect.summary} ${selectedVersion}`
+    : t.versionSelect.summary;
+
   return (
-    <Box flexDirection="column" paddingY={1}>
-      <Box marginBottom={1}>
-        <Text bold>{t.versionSelect.title}</Text>
+    <ScreenFrame
+      title={t.versionSelect.title}
+      subtitle={t.versionSelect.subtitle}
+      summary={summary}
+      hotkeys={hotkeys}
+    >
+      <Box flexDirection="column">
+        <Text bold dimColor>Release</Text>
+        <SelectList
+          items={versions}
+          selectedIndex={selectedIndex}
+          visibleCount={10}
+          renderItem={(version, isSelected) => (
+            <Text color={isSelected ? 'cyan' : undefined}>
+              {isSelected ? '› ' : '  '}
+              {fitColumn(version.version, 16)}
+              {version.major ? '  recommended' : ''}
+            </Text>
+          )}
+        />
       </Box>
-
-      <SelectList
-        items={versions}
-        selectedIndex={selectedIndex}
-        visibleCount={10}
-        renderItem={(version, isSelected) => (
-          <Text color={isSelected ? 'cyan' : undefined}>
-            {isSelected ? '› ' : '  '}
-            {version.version}
-            {version.major ? ' ⭐' : ''}
-          </Text>
-        )}
-      />
-
-      <Box marginTop={1}>
-        <Text dimColor>{t.versionSelect.hint}</Text>
-      </Box>
-    </Box>
+    </ScreenFrame>
   );
 }

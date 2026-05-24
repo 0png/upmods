@@ -1,6 +1,8 @@
 import React from 'react';
 import { Box, Text } from 'ink';
+import { ScreenFrame, type HotkeyItem } from './chrome.js';
 import { useLanguage } from '../i18n/use-language.js';
+import { fitColumn } from '../utils/display.js';
 import type { ModUpdate, Mod } from '@upmods/core';
 
 export interface CheckPhaseProps {
@@ -8,94 +10,62 @@ export interface CheckPhaseProps {
   upToDate: Mod[];
 }
 
+const MOD_WIDTH = 24;
+const VERSION_WIDTH = 16;
+const STATUS_WIDTH = 12;
+
 export function CheckPhase({ updates, upToDate }: CheckPhaseProps) {
   const { t } = useLanguage();
 
   const hasUpdates = updates.length > 0;
+  const totalChecked = updates.length + upToDate.length;
+  const hotkeys: HotkeyItem[] = hasUpdates
+    ? [
+        { key: 'U', label: t.common.hotkeys.download, tone: 'warning' },
+        { key: 'Q', label: t.common.hotkeys.quit, tone: 'muted' },
+        { key: 'L', label: t.common.hotkeys.language, tone: 'muted' },
+      ]
+    : [
+        { key: 'Q', label: t.common.hotkeys.quit, tone: 'muted' },
+        { key: 'L', label: t.common.hotkeys.language, tone: 'muted' },
+      ];
+
+  const summary = hasUpdates
+    ? t.check.updatesFound.replace('{count}', String(updates.length))
+    : t.check.allUpToDate;
+  const subtitle = `${t.check.subtitle} ${t.check.modsChecked.replace('{count}', String(totalChecked))}`;
 
   return (
-    <Box flexDirection="column" paddingY={1}>
+    <ScreenFrame
+      title={t.check.title}
+      subtitle={subtitle}
+      summary={summary}
+      hotkeys={hotkeys}
+    >
       <Box marginBottom={1}>
-        <Text bold>{t.check.title}</Text>
+        <Text bold dimColor>{fitColumn(t.check.modName, MOD_WIDTH)}</Text>
+        <Text bold dimColor>{fitColumn(t.check.installed, VERSION_WIDTH)}</Text>
+        <Text bold dimColor>{fitColumn(t.check.available, VERSION_WIDTH)}</Text>
+        <Text bold dimColor>{fitColumn(t.check.status, STATUS_WIDTH)}</Text>
       </Box>
 
-      {/* Table header */}
-      <Box marginBottom={1}>
-        <Box width={30}>
-          <Text bold dimColor>
-            {t.check.modName}
-          </Text>
-        </Box>
-        <Box width={15}>
-          <Text bold dimColor>
-            {t.check.installed}
-          </Text>
-        </Box>
-        <Box width={15}>
-          <Text bold dimColor>
-            {t.check.available}
-          </Text>
-        </Box>
-        <Box width={20}>
-          <Text bold dimColor>
-            {t.check.status}
-          </Text>
-        </Box>
-      </Box>
-
-      {/* Mods with updates */}
       {updates.map((update) => (
         <Box key={update.mod.file.sha1}>
-          <Box width={30}>
-            <Text>{update.mod.displayName}</Text>
-          </Box>
-          <Box width={15}>
-            <Text>{update.mod.installedVersionNumber}</Text>
-          </Box>
-          <Box width={15}>
-            <Text color="green">{update.latestVersionNumber}</Text>
-          </Box>
-          <Box width={20}>
-            <Text color="yellow">
-              {t.check.updateAvailable} ↑
-            </Text>
-          </Box>
+          <Text>{fitColumn(update.mod.displayName, MOD_WIDTH)}</Text>
+          <Text>{fitColumn(update.mod.installedVersionNumber, VERSION_WIDTH)}</Text>
+          <Text color="green">{fitColumn(update.latestVersionNumber, VERSION_WIDTH)}</Text>
+          <Text color="yellow">{fitColumn(`${t.check.updateAvailable} ↑`, STATUS_WIDTH)}</Text>
         </Box>
       ))}
 
-      {/* Up-to-date mods */}
       {upToDate.map((mod) => (
         <Box key={mod.file.sha1}>
-          <Box width={30}>
-            <Text>{mod.displayName}</Text>
-          </Box>
-          <Box width={15}>
-            <Text>{mod.installedVersionNumber}</Text>
-          </Box>
-          <Box width={15}>
-            <Text dimColor>—</Text>
-          </Box>
-          <Box width={20}>
-            <Text color="green">{t.check.upToDate} ✓</Text>
-          </Box>
+          <Text>{fitColumn(mod.displayName, MOD_WIDTH)}</Text>
+          <Text>{fitColumn(mod.installedVersionNumber, VERSION_WIDTH)}</Text>
+          <Text dimColor>{fitColumn('—', VERSION_WIDTH)}</Text>
+          <Text color="green">{fitColumn(`${t.check.upToDate} ✓`, STATUS_WIDTH)}</Text>
         </Box>
       ))}
-
-      {/* Summary message */}
-      <Box marginTop={1}>
-        {hasUpdates ? (
-          <Text color="cyan">{t.check.updatesFound.replace('{count}', String(updates.length))}</Text>
-        ) : (
-          <Text color="green">{t.check.allUpToDate}</Text>
-        )}
-      </Box>
-
-      {/* Action hints */}
-      <Box marginTop={1}>
-        <Text dimColor>
-          {hasUpdates ? t.check.hintWithUpdates : t.check.hintNoUpdates}
-        </Text>
-      </Box>
-    </Box>
+    </ScreenFrame>
   );
 }

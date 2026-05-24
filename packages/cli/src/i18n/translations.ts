@@ -1,26 +1,50 @@
 export interface Translations {
   common: {
-    quitHint: string;
-    langToggle: string;
+    brand: string;
+    nextLanguage: string;
+    hotkeys: {
+      quit: string;
+      language: string;
+      download: string;
+      continue: string;
+      confirm: string;
+      navigate: string;
+    };
+    status: {
+      ready: string;
+      done: string;
+      failed: string;
+      waiting: string;
+    };
   };
   scan: {
     title: string;
+    subtitle: string;
     scanning: string;
     identifying: string;
-    progress: string;
     identifiedSection: string;
     unidentifiedSection: string;
     unidentifiedLabel: string;
     emptyDir: string;
     emptyDirHint: string;
-    continueHint: string;
+    summaryScanning: string;
+    summaryComplete: string;
+    summaryEmpty: string;
   };
   versionSelect: {
     title: string;
-    hint: string;
+    subtitle: string;
+    summary: string;
+  };
+  checking: {
+    title: string;
+    subtitle: string;
+    inProgress: string;
+    summary: string;
   };
   check: {
     title: string;
+    subtitle: string;
     modName: string;
     installed: string;
     available: string;
@@ -30,133 +54,183 @@ export interface Translations {
     notAvailable: string;
     allUpToDate: string;
     updatesFound: string;
-    hintWithUpdates: string;
-    hintNoUpdates: string;
+    modsChecked: string;
   };
   download: {
     title: string;
-    done: string;
-    failed: string;
-    waiting: string;
+    subtitle: string;
+    summary: string;
+    current: string;
   };
   summary: {
     title: string;
+    subtitle: string;
+    successSummary: string;
     outputDir: string;
-    quitHint: string;
     failedSection: string;
   };
   error: {
+    title: string;
+    subtitle: string;
     prefix: string;
-    quitHint: string;
     unknownError: string;
   };
 }
 
 export const en: Translations = {
   common: {
-    quitHint: 'Press Q to quit',
-    langToggle: 'Press L to toggle language',
+    brand: 'upmods',
+    nextLanguage: '中文',
+    hotkeys: {
+      quit: 'Quit',
+      language: '中文',
+      download: 'Download',
+      continue: 'Continue',
+      confirm: 'Confirm',
+      navigate: 'Move',
+    },
+    status: {
+      ready: 'Ready',
+      done: 'Done',
+      failed: 'Failed',
+      waiting: 'Waiting…',
+    },
   },
   scan: {
-    title: 'Scanning mods directory…',
-    scanning: 'Scanning…',
+    title: 'Scan',
+    subtitle: 'Find installed mods and match them with Modrinth.',
+    scanning: 'Scanning files…',
     identifying: 'Identifying mods…',
-    progress: '{done} / {total} scanned',
-    identifiedSection: 'Identified mods',
-    unidentifiedSection: 'Unidentified files',
-    unidentifiedLabel: '(unidentified)',
+    identifiedSection: 'Identified',
+    unidentifiedSection: 'Unidentified',
+    unidentifiedLabel: 'Needs manual review',
     emptyDir: 'No mod files found in:',
-    emptyDirHint: 'Make sure you are in a Minecraft mods directory.',
-    continueHint: 'Press Enter to continue',
+    emptyDirHint: 'Run upmods inside a Minecraft mods directory.',
+    summaryScanning: 'Scanning your mods folder…',
+    summaryComplete: '{identified} identified · {unidentified} unidentified',
+    summaryEmpty: 'No mod archives were found.',
   },
   versionSelect: {
-    title: 'Select Minecraft version to check updates for',
-    hint: '↑↓ navigate  Enter confirm  Q quit  L language',
+    title: 'Target Version',
+    subtitle: 'Choose which Minecraft release to compare against.',
+    summary: 'Use arrow keys to select a release build.',
+  },
+  checking: {
+    title: 'Updates',
+    subtitle: 'Compare installed versions against the selected release.',
+    inProgress: 'Checking Modrinth for newer versions…',
+    summary: 'Preparing update availability…',
   },
   check: {
-    title: 'Update availability',
+    title: 'Updates',
+    subtitle: 'Review available updates before downloading.',
     modName: 'Mod',
     installed: 'Installed',
     available: 'Available',
     status: 'Status',
-    upToDate: 'Up to date',
-    updateAvailable: 'Update available',
-    notAvailable: 'Not available',
+    upToDate: 'Latest',
+    updateAvailable: 'Update',
+    notAvailable: 'N/A',
     allUpToDate: 'All mods are up to date.',
-    updatesFound: '{count} update(s) available',
-    hintWithUpdates: 'Press U to download updates  Q to quit  L language',
-    hintNoUpdates: 'Press Q to quit  L language',
+    updatesFound: '{count} updates available',
+    modsChecked: '{count} mods checked',
   },
   download: {
-    title: 'Downloading updates…',
-    done: 'done',
-    failed: 'failed',
-    waiting: 'waiting…',
+    title: 'Downloads',
+    subtitle: 'Fetch update files into mods-updated.',
+    summary: '{done} done · {failed} failed · {pending} pending',
+    current: 'Current',
   },
   summary: {
-    title: '{count} mods updated',
+    title: 'Done',
+    subtitle: 'Download session finished.',
+    successSummary: '{count} mods updated',
     outputDir: 'Saved to:',
-    quitHint: 'Press Q to quit',
     failedSection: 'Failed downloads',
   },
   error: {
+    title: 'Error',
+    subtitle: 'The update flow stopped before completion.',
     prefix: '✘',
-    quitHint: 'Press Q to quit',
     unknownError: 'An unexpected error occurred',
   },
 };
 
-// zh-TW translations — filled in T042 (US4)
 export const zhTW: Translations = {
   common: {
-    quitHint: '按 Q 結束',
-    langToggle: '按 L 切換語言',
+    brand: 'upmods',
+    nextLanguage: 'English',
+    hotkeys: {
+      quit: '結束',
+      language: 'English',
+      download: '下載',
+      continue: '繼續',
+      confirm: '確認',
+      navigate: '移動',
+    },
+    status: {
+      ready: '就緒',
+      done: '完成',
+      failed: '失敗',
+      waiting: '等待中…',
+    },
   },
   scan: {
-    title: '正在掃描模組目錄…',
-    scanning: '掃描中…',
+    title: '掃描',
+    subtitle: '找出已安裝模組，並與 Modrinth 資料比對。',
+    scanning: '掃描檔案中…',
     identifying: '識別模組中…',
-    progress: '{done} / {total} 已掃描',
-    identifiedSection: '已識別的模組',
-    unidentifiedSection: '未識別的檔案',
-    unidentifiedLabel: '（未識別）',
+    identifiedSection: '已識別',
+    unidentifiedSection: '未識別',
+    unidentifiedLabel: '需手動確認',
     emptyDir: '找不到模組檔案於：',
-    emptyDirHint: '請確認您位於 Minecraft 模組目錄中。',
-    continueHint: '按 Enter 繼續',
+    emptyDirHint: '請在 Minecraft 的 mods 目錄中執行 upmods。',
+    summaryScanning: '正在掃描你的 mods 資料夾…',
+    summaryComplete: '已識別 {identified} 個 · 未識別 {unidentified} 個',
+    summaryEmpty: '沒有找到任何模組封裝檔。',
   },
   versionSelect: {
-    title: '選擇要檢查更新的 Minecraft 版本',
-    hint: '↑↓ 導覽  Enter 確認  Q 結束  L 切換語言',
+    title: '目標版本',
+    subtitle: '選擇要比對更新的 Minecraft 版本。',
+    summary: '使用方向鍵選擇正式版。',
+  },
+  checking: {
+    title: '更新檢查',
+    subtitle: '依據選定版本比對可用更新。',
+    inProgress: '正在向 Modrinth 查詢新版本…',
+    summary: '正在整理更新結果…',
   },
   check: {
-    title: '更新狀況',
+    title: '更新檢查',
+    subtitle: '確認可用更新後再開始下載。',
     modName: '模組',
     installed: '已安裝',
     available: '可用版本',
     status: '狀態',
-    upToDate: '已是最新',
-    updateAvailable: '有更新可用',
-    notAvailable: '此版本不支援',
-    allUpToDate: '所有模組均為最新版本。',
-    updatesFound: '{count} 個更新可用',
-    hintWithUpdates: '按 U 下載更新  Q 結束  L 切換語言',
-    hintNoUpdates: '按 Q 結束  L 切換語言',
+    upToDate: '最新',
+    updateAvailable: '可更新',
+    notAvailable: '無',
+    allUpToDate: '所有模組都已是最新版本。',
+    updatesFound: '可更新模組：{count}',
+    modsChecked: '已檢查 {count} 個模組',
   },
   download: {
-    title: '正在下載更新…',
-    done: '完成',
-    failed: '失敗',
-    waiting: '等待中…',
+    title: '下載',
+    subtitle: '把更新檔下載到 mods-updated。',
+    summary: '完成 {done} 個 · 失敗 {failed} 個 · 剩餘 {pending} 個',
+    current: '目前',
   },
   summary: {
-    title: '已更新 {count} 個模組',
+    title: '完成',
+    subtitle: '本次下載流程已結束。',
+    successSummary: '已更新 {count} 個模組',
     outputDir: '儲存至：',
-    quitHint: '按 Q 結束',
     failedSection: '下載失敗',
   },
   error: {
+    title: '錯誤',
+    subtitle: '更新流程尚未完成即中止。',
     prefix: '✘',
-    quitHint: '按 Q 結束',
     unknownError: '發生未預期的錯誤',
   },
 };

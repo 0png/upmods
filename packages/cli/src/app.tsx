@@ -7,6 +7,7 @@ import { ErrorPhase } from './components/error-phase.js';
 import { ScanPhase } from './components/scan-phase.js';
 import { VersionSelectPhase } from './components/version-select-phase.js';
 import { CheckPhase } from './components/check-phase.js';
+import { CheckingPhase } from './components/checking-phase.js';
 import { DownloadPhase } from './components/download-phase.js';
 import { SummaryPhase } from './components/summary-phase.js';
 import { UpmodsCore } from '@upmods/core';
@@ -181,7 +182,7 @@ export function App({ dir }: AppProps) {
       );
     }
     if (state.phase === 'checking') {
-      return <Text>Checking for updates…</Text>;
+      return <CheckingPhase />;
     }
     if (state.phase === 'check_complete') {
       return <CheckPhase updates={state.updates} upToDate={state.upToDate} />;
