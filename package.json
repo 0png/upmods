@@ -12,7 +12,9 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r lint",
+    "pack:cli": "node -e \"require('node:fs').mkdirSync('release', { recursive: true })\" && pnpm --dir packages/cli pack --pack-destination ../../release && node scripts/write-release-checksum.mjs",
+    "release:check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",

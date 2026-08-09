@@ -1,29 +1,55 @@
 {
-  "name": "@upmods/cli",
+  "name": "upmods",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
-  "description": "Ink TUI for upmods",
-  "bin": {
-    "upmods": "./src/cli.tsx"
+  "description": "Minecraft mod updater and cross-loader migration TUI powered by Modrinth",
+  "license": "MIT",
+  "author": "0png",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0png/upmods.git"
   },
+  "bugs": {
+    "url": "https://github.com/0png/upmods/issues"
+  },
+  "homepage": "https://github.com/0png/upmods#readme",
+  "keywords": [
+    "minecraft",
+    "mods",
+    "modrinth",
+    "fabric",
+    "forge",
+    "neoforge",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bin": {
+    "upmods": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "tsx src/cli.tsx",
-    "build": "tsc --noEmit",
+    "build": "tsc --noEmit && esbuild src/cli.tsx --bundle --platform=node --format=esm --target=node20 --alias:react-devtools-core=./src/shims/react-devtools-core.ts --banner:js=\"import { createRequire as __upmodsCreateRequire } from 'node:module'; const require = __upmodsCreateRequire(import.meta.url);\" --outfile=dist/cli.js --sourcemap",
     "test": "tsx --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/"
-  },
-  "dependencies": {
-    "@upmods/core": "workspace:*",
-    "chalk": "^5.4.1",
-    "i18next": "^24.2.2",
-    "ink": "^5.1.0",
-    "react": "^18.3.1"
+    "lint": "eslint src/",
+    "prepack": "pnpm build"
   },
   "devDependencies": {
+    "@upmods/core": "workspace:*",
     "@types/node": "^20.0.0",
     "@types/react": "^18.3.20",
+    "chalk": "^5.4.1",
+    "esbuild": "^0.27.3",
+    "i18next": "^24.2.2",
+    "ink": "^5.1.0",
+    "react": "^18.3.1",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
   }

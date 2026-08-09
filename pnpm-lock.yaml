@@ -19,13 +19,22 @@ importers:
         version: 8.56.1(eslint@9.39.3)(typescript@5.9.3)
 
   packages/cli:
-    dependencies:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.35
+      '@types/react':
+        specifier: ^18.3.20
+        version: 18.3.28
       '@upmods/core':
         specifier: workspace:*
         version: link:../core
       chalk:
         specifier: ^5.4.1
         version: 5.6.2
+      esbuild:
+        specifier: ^0.27.3
+        version: 0.27.3
       i18next:
         specifier: ^24.2.2
         version: 24.2.3(typescript@5.9.3)
@@ -35,13 +44,6 @@ importers:
       react:
         specifier: ^18.3.1
         version: 18.3.1
-    devDependencies:
-      '@types/node':
-        specifier: ^20.0.0
-        version: 20.19.35
-      '@types/react':
-        specifier: ^18.3.20
-        version: 18.3.28
       tsx:
         specifier: ^4.19.3
         version: 4.21.0
