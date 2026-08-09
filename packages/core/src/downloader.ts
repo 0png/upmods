@@ -7,7 +7,7 @@ import path from 'node:path';
 import { ensureDir } from 'fs-extra';
 import type { ModUpdate, DownloadResult } from './types.js';
 
-const USER_AGENT = 'upmods/0.1.0 (https://github.com/user/upmods)';
+const USER_AGENT = 'upmods/0.1.0 (https://github.com/0png/upmods)';
 
 /**
  * Download a single mod update to a file.

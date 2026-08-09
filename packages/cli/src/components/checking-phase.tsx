@@ -6,9 +6,19 @@ import { useSpinner } from '../hooks/use-spinner.js';
 
 interface CheckingPhaseProps {
   workflowStep: number | null;
+  title?: string;
+  subtitle?: string;
+  inProgress?: string;
+  summary?: string;
 }
 
-export function CheckingPhase({ workflowStep }: CheckingPhaseProps) {
+export function CheckingPhase({
+  workflowStep,
+  title,
+  subtitle,
+  inProgress,
+  summary,
+}: CheckingPhaseProps) {
   const { t } = useLanguage();
   const spinnerChar = useSpinner(true);
 
@@ -19,14 +29,14 @@ export function CheckingPhase({ workflowStep }: CheckingPhaseProps) {
 
   return (
     <ScreenFrame
-      title={t.checking.title}
-      subtitle={t.checking.subtitle}
-      summary={t.checking.summary}
+      title={title ?? t.checking.title}
+      subtitle={subtitle ?? t.checking.subtitle}
+      summary={summary ?? t.checking.summary}
       hotkeys={hotkeys}
       workflowStep={workflowStep}
     >
       <Text color="yellow">{spinnerChar} </Text>
-      <Text>{t.checking.inProgress}</Text>
+      <Text>{inProgress ?? t.checking.inProgress}</Text>
     </ScreenFrame>
   );
 }

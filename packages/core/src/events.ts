@@ -1,4 +1,13 @@
-import type { ModFile, Mod, ModUpdate, ScanResult, DownloadResult } from './types.js';
+import type {
+  DownloadResult,
+  LoaderMigrationPlan,
+  MigrationEntry,
+  MigrationResult,
+  Mod,
+  ModFile,
+  ModUpdate,
+  ScanResult,
+} from './types.js';
 
 export type CoreEvents = {
   // --- Identify phase ---
@@ -17,6 +26,11 @@ export type CoreEvents = {
   'download:complete': (result: DownloadResult) => void;
   'download:error': (update: ModUpdate, error: Error) => void;
   'all:done': (results: DownloadResult[]) => void;
+
+  // --- Loader migration phase ---
+  'migration:plan-complete': (plan: LoaderMigrationPlan) => void;
+  'migration:progress': (entry: MigrationEntry, bytesReceived: number, totalBytes: number) => void;
+  'migration:complete': (result: MigrationResult) => void;
 
   // --- Error ---
   'error': (error: Error) => void;

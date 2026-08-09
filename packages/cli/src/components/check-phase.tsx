@@ -4,6 +4,7 @@ import { ScreenFrame, type HotkeyItem } from './chrome.js';
 import { useLanguage } from '../i18n/use-language.js';
 import { fitColumn } from '../utils/display.js';
 import { formatListNumber, getViewportState } from '../utils/viewport.js';
+import { getInstalledVersionUrl, getUpdateVersionUrl } from '../utils/modrinth.js';
 import type { ModUpdate, Mod } from '@upmods/core';
 
 export interface CheckPhaseProps {
@@ -37,6 +38,7 @@ export function CheckPhase({
     ...updates.map((update) => ({
       kind: 'update' as const,
       key: update.mod.file.sha1,
+      url: getUpdateVersionUrl(update),
       modName: update.mod.displayName,
       installed: update.mod.installedVersionNumber,
       available: update.latestVersionNumber,
@@ -46,6 +48,7 @@ export function CheckPhase({
     ...upToDate.map((mod) => ({
       kind: 'upToDate' as const,
       key: mod.file.sha1,
+      url: getInstalledVersionUrl(mod),
       modName: mod.displayName,
       installed: mod.installedVersionNumber,
       available: '—',
@@ -91,6 +94,7 @@ export function CheckPhase({
         .replace('{above}', String(viewport.hiddenAbove))
         .replace('{below}', String(viewport.hiddenBelow))
     : null;
+  const currentItem = checkItems[checkCursorIndex];
   const subtitle = `${t.check.subtitle} ${t.check.modsChecked.replace('{count}', String(totalChecked))}`;
 
   return (
@@ -103,6 +107,11 @@ export function CheckPhase({
     >
       {browsing ? <Text dimColor>{browsing}</Text> : null}
       {overflow ? <Text dimColor>{overflow}</Text> : null}
+      {currentItem ? (
+        <Text dimColor>
+          {t.check.modrinthLink} {currentItem.url}
+        </Text>
+      ) : null}
       <Box marginBottom={1}>
         <Text bold dimColor>{fitColumn('#', NUMBER_WIDTH)}</Text>
         <Text bold dimColor>{fitColumn(t.check.pick, PICK_WIDTH)}</Text>

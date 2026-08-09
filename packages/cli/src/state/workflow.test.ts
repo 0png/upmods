@@ -14,16 +14,21 @@ test('scan-related phases map to step 1', () => {
 
 test('version selection maps to step 2', () => {
   assert.equal(getWorkflowStep('version_select'), 2);
+  assert.equal(getWorkflowStep('loader_select'), 2);
 });
 
 test('check-related phases map to step 3', () => {
   assert.equal(getWorkflowStep('checking'), 3);
   assert.equal(getWorkflowStep('check_complete'), 3);
+  assert.equal(getWorkflowStep('migration_checking'), 3);
+  assert.equal(getWorkflowStep('migration_review'), 3);
 });
 
 test('download and completion map to the final visible steps', () => {
   assert.equal(getWorkflowStep('downloading'), 4);
+  assert.equal(getWorkflowStep('migration_building'), 4);
   assert.equal(getWorkflowStep('done'), 5);
+  assert.equal(getWorkflowStep('migration_done'), 5);
 });
 
 test('error phase hides the workflow step indicator', () => {

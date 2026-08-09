@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { DownloadResult, Mod, ModUpdate } from '@upmods/core';
+import type { DownloadResult, LoaderMigrationPlan, Mod, ModUpdate } from '@upmods/core';
 import { initialState, reducer } from './reducer.js';
 
 function createModUpdate(index: number): ModUpdate {
@@ -242,4 +242,95 @@ test('summary cursor navigation wraps around failed result bounds', () => {
   assert.equal(down.summaryCursorIndex, 1);
   assert.equal(wrappedDown.summaryCursorIndex, 0);
   assert.equal(wrappedUp.summaryCursorIndex, 1);
+});
+
+test('loader selection defaults to the detected source and preserves normal update flow', () => {
+  const loaded = reducer(initialState, {
+    type: 'MOD_LOADERS_LOADED',
+    loaders: [
+      { name: 'fabric', supportedProjectTypes: ['mod'] },
+      { name: 'forge', supportedProjectTypes: ['mod'] },
+    ],
+    detection: {
+      detected: 'forge',
+      candidates: [{ loader: 'forge', count: 3 }],
+      ambiguous: false,
+    },
+  });
+  const confirmed = reducer({ ...loaded, phase: 'loader_select' }, {
+    type: 'CONFIRM_LOADER_SELECTION',
+  });
+
+  assert.equal(loaded.selectedSourceLoader, 'forge');
+  assert.equal(loaded.targetLoaderIndex, 1);
+  assert.equal(confirmed.phase, 'checking');
+  assert.equal(confirmed.selectedTargetLoader, 'forge');
+});
+
+test('choosing a different target loader enters migration analysis', () => {
+  const loaded = reducer(initialState, {
+    type: 'MOD_LOADERS_LOADED',
+    loaders: [
+      { name: 'fabric', supportedProjectTypes: ['mod'] },
+      { name: 'forge', supportedProjectTypes: ['mod'] },
+    ],
+    detection: {
+      detected: 'forge',
+      candidates: [{ loader: 'forge', count: 2 }],
+      ambiguous: false,
+    },
+  });
+  const moved = reducer({ ...loaded, phase: 'loader_select' }, { type: 'LOADER_CURSOR_UP' });
+  const confirmed = reducer(moved, { type: 'CONFIRM_LOADER_SELECTION' });
+
+  assert.equal(moved.targetLoaderIndex, 0);
+  assert.equal(confirmed.selectedTargetLoader, 'fabric');
+  assert.equal(confirmed.phase, 'migration_checking');
+});
+
+test('migration review only toggles optional dependencies', () => {
+  const update = createModUpdate(1);
+  const plan: LoaderMigrationPlan = {
+    sourceLoader: 'forge',
+    targetLoader: 'fabric',
+    mcVersion: '1.21.1',
+    complete: true,
+    issues: [],
+    entries: [
+      {
+        id: 'root:one',
+        displayName: 'Root',
+        projectId: 'one',
+        projectSlug: 'one',
+        sourceLoader: 'forge',
+        targetLoader: 'fabric',
+        status: 'convertible',
+        dependencyType: 'root',
+        locked: true,
+        activationKeys: ['root'],
+        update,
+      },
+      {
+        id: 'dependency:optional',
+        displayName: 'Optional',
+        projectId: 'optional',
+        projectSlug: 'optional',
+        sourceLoader: 'forge',
+        targetLoader: 'fabric',
+        status: 'optional',
+        dependencyType: 'optional',
+        locked: false,
+        activationKeys: ['dependency:optional'],
+        update,
+      },
+    ],
+  };
+  const review = reducer(initialState, { type: 'MIGRATION_PLAN_COMPLETE', plan });
+  const lockedAttempt = reducer(review, { type: 'TOGGLE_OPTIONAL_DEPENDENCY' });
+  const onOptional = reducer(lockedAttempt, { type: 'MIGRATION_CURSOR_DOWN' });
+  const selected = reducer(onOptional, { type: 'TOGGLE_OPTIONAL_DEPENDENCY' });
+
+  assert.equal(review.phase, 'migration_review');
+  assert.deepEqual(lockedAttempt.selectedOptionalEntries, { 'dependency:optional': false });
+  assert.equal(selected.selectedOptionalEntries['dependency:optional'], true);
 });
