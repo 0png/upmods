@@ -36,7 +36,7 @@
   "scripts": {
     "dev": "tsx src/cli.tsx",
     "build": "tsc --noEmit && esbuild src/cli.tsx --bundle --platform=node --format=esm --target=node20 --alias:react-devtools-core=./src/shims/react-devtools-core.ts --banner:js=\"import { createRequire as __upmodsCreateRequire } from 'node:module'; const require = __upmodsCreateRequire(import.meta.url);\" --outfile=dist/cli.js --sourcemap",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "tsx --test src/state/reducer.test.ts src/state/workflow.test.ts src/utils/display.test.ts src/utils/modrinth.test.ts src/utils/viewport.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
     "prepack": "pnpm build"
