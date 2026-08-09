@@ -1,9 +1,24 @@
 import { EventEmitter } from 'node:events';
 import type { CoreEvents } from './events.js';
-import type { ScanResult, Mod, ModFile, MCVersion, ModUpdate, DownloadResult } from './types.js';
+import type {
+  ScanResult,
+  Mod,
+  ModFile,
+  MCVersion,
+  ModUpdate,
+  DownloadResult,
+  ApplyResult,
+  RollbackResult,
+  LoaderDetection,
+  LoaderMigrationPlan,
+  MigrationResult,
+  ModLoader,
+} from './types.js';
 import { scanDirectory } from './scanner.js';
 import { ModrinthClient } from './modrinth.js';
 import { downloadFile } from './downloader.js';
+import { applyDownloadedUpdates, rollbackLatestBackupSession } from './backup.js';
+import { detectSourceLoader, materializeMigrationPlan } from './migration.js';
 import pLimit from 'p-limit';
 
 // Declaration merging: overlay typed event methods on the class
@@ -123,10 +138,13 @@ export class UpmodsCore extends EventEmitter {
    */
   async checkUpdates(
     mods: Mod[],
-    mcVersion: string
+    mcVersion: string,
+    loader?: string,
   ): Promise<{ updates: ModUpdate[]; upToDate: Mod[] }> {
     try {
-      const result = await this.modrinth.checkUpdates(mods, mcVersion);
+      const result = loader === undefined
+        ? await this.modrinth.checkUpdates(mods, mcVersion)
+        : await this.modrinth.checkUpdates(mods, mcVersion, loader);
       this.emit('check:complete', result.updates, result.upToDate);
       return result;
     } catch (err) {
@@ -179,5 +197,86 @@ export class UpmodsCore extends EventEmitter {
     const results = await Promise.all(resultPromises);
     this.emit('all:done', results);
     return results;
+  }
+
+  async getModLoaders(): Promise<ModLoader[]> {
+    try {
+      return await this.modrinth.getModLoaders();
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.emit('error', error);
+      throw error;
+    }
+  }
+
+  detectSourceLoader(mods: Mod[]): LoaderDetection {
+    return detectSourceLoader(mods);
+  }
+
+  async planLoaderMigration(
+    mods: Mod[],
+    mcVersion: string,
+    sourceLoader: string,
+    targetLoader: string,
+  ): Promise<LoaderMigrationPlan> {
+    try {
+      const plan = await this.modrinth.planLoaderMigration(
+        mods,
+        mcVersion,
+        sourceLoader,
+        targetLoader,
+      );
+      this.emit('migration:plan-complete', plan);
+      return plan;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.emit('error', error);
+      throw error;
+    }
+  }
+
+  async materializeMigration(
+    plan: LoaderMigrationPlan,
+    selectedOptionalEntryIds: string[],
+    outputDir: string,
+  ): Promise<MigrationResult> {
+    try {
+      const result = await materializeMigrationPlan(
+        plan,
+        selectedOptionalEntryIds,
+        outputDir,
+        (entry, bytes, total) => this.emit('migration:progress', entry, bytes, total),
+      );
+      this.emit('migration:complete', result);
+      return result;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.emit('error', error);
+      throw error;
+    }
+  }
+
+  async applyUpdates(
+    updates: ModUpdate[],
+    downloadedDir: string,
+    modsDir: string,
+  ): Promise<ApplyResult> {
+    try {
+      return await applyDownloadedUpdates(updates, downloadedDir, modsDir);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.emit('error', error);
+      throw error;
+    }
+  }
+
+  async rollbackLatestSession(modsDir: string): Promise<RollbackResult> {
+    try {
+      return await rollbackLatestBackupSession(modsDir);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.emit('error', error);
+      throw error;
+    }
   }
 }

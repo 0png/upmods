@@ -4,6 +4,7 @@ import { ScreenFrame, type HotkeyItem } from './chrome.js';
 import { useLanguage } from '../i18n/use-language.js';
 import { useSpinner } from '../hooks/use-spinner.js';
 import { fitColumn } from '../utils/display.js';
+import { getUpdateVersionUrl } from '../utils/modrinth.js';
 import { formatListNumber, getViewportState } from '../utils/viewport.js';
 import type { ModUpdate, DownloadResult } from '@upmods/core';
 
@@ -51,6 +52,7 @@ export function DownloadPhase({
 
   const hotkeys: HotkeyItem[] = [
     { key: '↑↓', label: t.common.hotkeys.scroll, tone: 'primary' },
+    { key: 'O', label: t.common.hotkeys.open, tone: 'primary' },
     { key: 'Q', label: t.common.hotkeys.quit, tone: 'muted' },
   ];
 
@@ -67,6 +69,7 @@ export function DownloadPhase({
         .replace('{above}', String(viewport.hiddenAbove))
         .replace('{below}', String(viewport.hiddenBelow))
     : null;
+  const currentUpdate = updates[downloadCursorIndex];
 
   return (
     <ScreenFrame
@@ -78,6 +81,11 @@ export function DownloadPhase({
     >
       <Text dimColor>{browsing}</Text>
       {overflow ? <Text dimColor>{overflow}</Text> : null}
+      {currentUpdate ? (
+        <Text dimColor>
+          {t.download.modrinthLink} {getUpdateVersionUrl(currentUpdate)}
+        </Text>
+      ) : null}
       {viewport.visibleItems.map(({ item: update, index }) => {
         const progress = downloadProgress[update.mod.file.sha1];
         const result = resultsBySha1.get(update.mod.file.sha1);

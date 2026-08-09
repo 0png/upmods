@@ -1,14 +1,34 @@
-import type { ScanResult, MCVersion, ModUpdate, Mod, DownloadResult } from '@upmods/core';
+import type {
+  ApplyResult,
+  BackupSessionManifest,
+  DownloadResult,
+  LoaderDetection,
+  LoaderMigrationPlan,
+  MCVersion,
+  MigrationResult,
+  Mod,
+  ModLoader,
+  ModUpdate,
+  RollbackResult,
+  ScanResult,
+} from '@upmods/core';
 
 export type AppPhase =
   | 'scanning'
   | 'identifying'
   | 'scan_complete'
   | 'version_select'
+  | 'loader_select'
   | 'checking'
   | 'check_complete'
   | 'downloading'
+  | 'applying'
+  | 'rollbacking'
   | 'done'
+  | 'migration_checking'
+  | 'migration_review'
+  | 'migration_building'
+  | 'migration_done'
   | 'error';
 
 export interface AppState {
@@ -18,6 +38,13 @@ export interface AppState {
   mcVersions: MCVersion[];
   selectedMCVersionIndex: number;
   selectedMCVersion: string | null;
+  modLoaders: ModLoader[];
+  loaderDetection: LoaderDetection | null;
+  loaderSelectionMode: 'source' | 'target';
+  sourceLoaderIndex: number;
+  targetLoaderIndex: number;
+  selectedSourceLoader: string | null;
+  selectedTargetLoader: string | null;
   updates: ModUpdate[];
   selectedUpdates: Record<string, boolean>;
   checkCursorIndex: number;
@@ -25,9 +52,17 @@ export interface AppState {
   downloadCursorIndex: number;
   upToDate: Mod[];
   downloadResults: DownloadResult[];
+  lastBackupSession: BackupSessionManifest | null;
+  lastApplyResult: ApplyResult | null;
+  lastRollbackResult: RollbackResult | null;
   /** Per-mod SHA-1 → { bytes, total } for live progress display */
   downloadProgress: Record<string, { bytes: number; total: number }>;
   summaryCursorIndex: number;
+  migrationPlan: LoaderMigrationPlan | null;
+  migrationCursorIndex: number;
+  selectedOptionalEntries: Record<string, boolean>;
+  migrationProgress: Record<string, { bytes: number; total: number }>;
+  migrationResult: MigrationResult | null;
   errorMessage: string | null;
   locale: 'en' | 'zh-TW';
 }
@@ -39,9 +74,14 @@ export type AppAction =
   | { type: 'SCAN_CURSOR_DOWN' }
   | { type: 'PROCEED_TO_VERSION_SELECT' }
   | { type: 'MC_VERSIONS_LOADED'; versions: MCVersion[] }
+  | { type: 'MOD_LOADERS_LOADED'; loaders: ModLoader[]; detection: LoaderDetection }
   | { type: 'CURSOR_UP' }
   | { type: 'CURSOR_DOWN' }
   | { type: 'SELECT_MC_VERSION' }
+  | { type: 'LOADER_CURSOR_UP' }
+  | { type: 'LOADER_CURSOR_DOWN' }
+  | { type: 'EDIT_SOURCE_LOADER' }
+  | { type: 'CONFIRM_LOADER_SELECTION' }
   | { type: 'CHECK_COMPLETE'; updates: ModUpdate[]; upToDate: Mod[] }
   | { type: 'CHECK_CURSOR_UP' }
   | { type: 'CHECK_CURSOR_DOWN' }
@@ -49,11 +89,24 @@ export type AppAction =
   | { type: 'SELECT_ALL_UPDATES' }
   | { type: 'CLEAR_ALL_UPDATES' }
   | { type: 'START_DOWNLOAD' }
+  | { type: 'START_APPLY' }
+  | { type: 'APPLY_COMPLETE'; result: ApplyResult }
+  | { type: 'START_ROLLBACK' }
+  | { type: 'ROLLBACK_COMPLETE'; result: RollbackResult }
   | { type: 'DOWNLOAD_CURSOR_UP' }
   | { type: 'DOWNLOAD_CURSOR_DOWN' }
   | { type: 'DOWNLOAD_PROGRESS'; modName: string; bytes: number; total: number }
   | { type: 'DOWNLOAD_RESULT'; result: DownloadResult }
   | { type: 'DOWNLOAD_ALL_DONE' }
+  | { type: 'MIGRATION_PLAN_COMPLETE'; plan: LoaderMigrationPlan }
+  | { type: 'MIGRATION_CURSOR_UP' }
+  | { type: 'MIGRATION_CURSOR_DOWN' }
+  | { type: 'TOGGLE_OPTIONAL_DEPENDENCY' }
+  | { type: 'SELECT_ALL_OPTIONAL_DEPENDENCIES' }
+  | { type: 'CLEAR_OPTIONAL_DEPENDENCIES' }
+  | { type: 'START_MIGRATION_BUILD' }
+  | { type: 'MIGRATION_PROGRESS'; entryId: string; bytes: number; total: number }
+  | { type: 'MIGRATION_COMPLETE'; result: MigrationResult }
   | { type: 'SUMMARY_CURSOR_UP' }
   | { type: 'SUMMARY_CURSOR_DOWN' }
   | { type: 'TOGGLE_LANGUAGE' }
@@ -67,6 +120,13 @@ export const initialState: AppState = {
   mcVersions: [],
   selectedMCVersionIndex: 0,
   selectedMCVersion: null,
+  modLoaders: [],
+  loaderDetection: null,
+  loaderSelectionMode: 'target',
+  sourceLoaderIndex: 0,
+  targetLoaderIndex: 0,
+  selectedSourceLoader: null,
+  selectedTargetLoader: null,
   updates: [],
   selectedUpdates: {},
   checkCursorIndex: 0,
@@ -74,8 +134,16 @@ export const initialState: AppState = {
   downloadCursorIndex: 0,
   upToDate: [],
   downloadResults: [],
+  lastBackupSession: null,
+  lastApplyResult: null,
+  lastRollbackResult: null,
   downloadProgress: {},
   summaryCursorIndex: 0,
+  migrationPlan: null,
+  migrationCursorIndex: 0,
+  selectedOptionalEntries: {},
+  migrationProgress: {},
+  migrationResult: null,
   errorMessage: null,
   locale: 'en',
 };
@@ -131,6 +199,25 @@ export function reducer(state: AppState, action: AppAction): AppState {
         mcVersions: action.versions,
         selectedMCVersionIndex: 0,
       };
+    case 'MOD_LOADERS_LOADED': {
+      const detectedIndex = action.detection.detected
+        ? action.loaders.findIndex((loader) => loader.name === action.detection.detected)
+        : -1;
+      const initialIndex = detectedIndex >= 0 ? detectedIndex : 0;
+      const detectedLoader = detectedIndex >= 0
+        ? action.loaders[detectedIndex]?.name ?? null
+        : null;
+      return {
+        ...state,
+        modLoaders: action.loaders,
+        loaderDetection: action.detection,
+        loaderSelectionMode: detectedLoader ? 'target' : 'source',
+        sourceLoaderIndex: initialIndex,
+        targetLoaderIndex: initialIndex,
+        selectedSourceLoader: detectedLoader,
+        selectedTargetLoader: detectedLoader,
+      };
+    }
     case 'CURSOR_UP':
       return {
         ...state,
@@ -147,10 +234,81 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case 'SELECT_MC_VERSION':
       return {
         ...state,
-        phase: 'checking',
+        phase: 'loader_select',
         selectedMCVersion:
           state.mcVersions[state.selectedMCVersionIndex]?.version ?? null,
       };
+    case 'LOADER_CURSOR_UP': {
+      if (state.modLoaders.length <= 1) return state;
+      if (state.loaderSelectionMode === 'source') {
+        return {
+          ...state,
+          sourceLoaderIndex: state.sourceLoaderIndex === 0
+            ? state.modLoaders.length - 1
+            : state.sourceLoaderIndex - 1,
+        };
+      }
+      return {
+        ...state,
+        targetLoaderIndex: state.targetLoaderIndex === 0
+          ? state.modLoaders.length - 1
+          : state.targetLoaderIndex - 1,
+      };
+    }
+    case 'LOADER_CURSOR_DOWN': {
+      if (state.modLoaders.length <= 1) return state;
+      if (state.loaderSelectionMode === 'source') {
+        return {
+          ...state,
+          sourceLoaderIndex: state.sourceLoaderIndex === state.modLoaders.length - 1
+            ? 0
+            : state.sourceLoaderIndex + 1,
+        };
+      }
+      return {
+        ...state,
+        targetLoaderIndex: state.targetLoaderIndex === state.modLoaders.length - 1
+          ? 0
+          : state.targetLoaderIndex + 1,
+      };
+    }
+    case 'EDIT_SOURCE_LOADER': {
+      const selectedIndex = state.selectedSourceLoader
+        ? state.modLoaders.findIndex((loader) => loader.name === state.selectedSourceLoader)
+        : state.sourceLoaderIndex;
+      return {
+        ...state,
+        loaderSelectionMode: 'source',
+        sourceLoaderIndex: selectedIndex >= 0 ? selectedIndex : 0,
+      };
+    }
+    case 'CONFIRM_LOADER_SELECTION': {
+      if (state.loaderSelectionMode === 'source') {
+        const sourceLoader = state.modLoaders[state.sourceLoaderIndex]?.name;
+        if (!sourceLoader) return state;
+        const targetIndex = state.selectedTargetLoader
+          ? state.targetLoaderIndex
+          : state.modLoaders.findIndex((loader) => loader.name === sourceLoader);
+        return {
+          ...state,
+          loaderSelectionMode: 'target',
+          selectedSourceLoader: sourceLoader,
+          selectedTargetLoader: state.selectedTargetLoader ?? sourceLoader,
+          targetLoaderIndex: targetIndex >= 0 ? targetIndex : 0,
+        };
+      }
+
+      const targetLoader = state.modLoaders[state.targetLoaderIndex]?.name;
+      if (!state.selectedSourceLoader || !targetLoader) return state;
+      return {
+        ...state,
+        selectedTargetLoader: targetLoader,
+        phase: state.selectedSourceLoader === targetLoader ? 'checking' : 'migration_checking',
+        migrationPlan: null,
+        migrationProgress: {},
+        migrationResult: null,
+      };
+    }
     case 'CHECK_COMPLETE':
       return {
         ...state,
@@ -162,6 +320,9 @@ export function reducer(state: AppState, action: AppAction): AppState {
         downloadCursorIndex: 0,
         upToDate: action.upToDate,
         downloadResults: [],
+        lastBackupSession: null,
+        lastApplyResult: null,
+        lastRollbackResult: null,
         downloadProgress: {},
         summaryCursorIndex: 0,
       };
@@ -217,10 +378,30 @@ export function reducer(state: AppState, action: AppAction): AppState {
           activeDownloads,
           downloadCursorIndex: 0,
           downloadResults: [],
+          lastApplyResult: null,
+          lastRollbackResult: null,
           downloadProgress: {},
           summaryCursorIndex: 0,
         };
       }
+    case 'START_APPLY':
+      return { ...state, phase: 'applying', lastRollbackResult: null };
+    case 'APPLY_COMPLETE':
+      return {
+        ...state,
+        phase: 'done',
+        lastBackupSession: action.result.session,
+        lastApplyResult: action.result,
+        lastRollbackResult: null,
+      };
+    case 'START_ROLLBACK':
+      return { ...state, phase: 'rollbacking' };
+    case 'ROLLBACK_COMPLETE':
+      return {
+        ...state,
+        phase: 'done',
+        lastRollbackResult: action.result,
+      };
     case 'DOWNLOAD_CURSOR_UP':
       if (state.activeDownloads.length <= 1) return state;
       return {
@@ -254,8 +435,85 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         phase: 'done',
+        lastApplyResult: null,
+        lastRollbackResult: null,
         summaryCursorIndex: 0,
       };
+    case 'MIGRATION_PLAN_COMPLETE':
+      return {
+        ...state,
+        phase: 'migration_review',
+        migrationPlan: action.plan,
+        migrationCursorIndex: 0,
+        selectedOptionalEntries: Object.fromEntries(
+          action.plan.entries
+            .filter((entry) => entry.status === 'optional')
+            .map((entry) => [entry.id, false]),
+        ),
+        migrationProgress: {},
+        migrationResult: null,
+      };
+    case 'MIGRATION_CURSOR_UP': {
+      const total = state.migrationPlan?.entries.length ?? 0;
+      if (total <= 1) return state;
+      return {
+        ...state,
+        migrationCursorIndex: state.migrationCursorIndex === 0
+          ? total - 1
+          : state.migrationCursorIndex - 1,
+      };
+    }
+    case 'MIGRATION_CURSOR_DOWN': {
+      const total = state.migrationPlan?.entries.length ?? 0;
+      if (total <= 1) return state;
+      return {
+        ...state,
+        migrationCursorIndex: state.migrationCursorIndex === total - 1
+          ? 0
+          : state.migrationCursorIndex + 1,
+      };
+    }
+    case 'TOGGLE_OPTIONAL_DEPENDENCY': {
+      const entry = state.migrationPlan?.entries[state.migrationCursorIndex];
+      if (!entry || entry.status !== 'optional') return state;
+      return {
+        ...state,
+        selectedOptionalEntries: {
+          ...state.selectedOptionalEntries,
+          [entry.id]: !state.selectedOptionalEntries[entry.id],
+        },
+      };
+    }
+    case 'SELECT_ALL_OPTIONAL_DEPENDENCIES':
+      return {
+        ...state,
+        selectedOptionalEntries: Object.fromEntries(
+          (state.migrationPlan?.entries ?? [])
+            .filter((entry) => entry.status === 'optional')
+            .map((entry) => [entry.id, true]),
+        ),
+      };
+    case 'CLEAR_OPTIONAL_DEPENDENCIES':
+      return {
+        ...state,
+        selectedOptionalEntries: Object.fromEntries(
+          (state.migrationPlan?.entries ?? [])
+            .filter((entry) => entry.status === 'optional')
+            .map((entry) => [entry.id, false]),
+        ),
+      };
+    case 'START_MIGRATION_BUILD':
+      return { ...state, phase: 'migration_building', migrationProgress: {} };
+    case 'MIGRATION_PROGRESS':
+      return {
+        ...state,
+        migrationProgress: {
+          ...state.migrationProgress,
+          [action.entryId]: { bytes: action.bytes, total: action.total },
+        },
+      };
+    case 'MIGRATION_COMPLETE':
+      return { ...state, phase: 'migration_done', migrationResult: action.result };
     case 'SUMMARY_CURSOR_UP':
       if (state.downloadResults.filter((result) => !result.success).length <= 1) return state;
       return {

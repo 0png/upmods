@@ -4,6 +4,8 @@ dist/
 build/
 .pnpm-store/
 *.log
+*.tgz
+release/
 
 # TypeScript
 *.tsbuildinfo
@@ -13,6 +15,9 @@ test-mods/
 
 # AI & Tooling Metadata
 .claude/
+CLAUDE.md
+AGENTS.md
+mods/
 .specify/
 .cursor/
 .vscode/
