@@ -1,79 +1,110 @@
 # upmods
 
+[![npm](https://img.shields.io/npm/v/upmods)](https://www.npmjs.com/package/upmods)
 [![CI](https://github.com/0png/upmods/actions/workflows/ci.yml/badge.svg)](https://github.com/0png/upmods/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
-`upmods` is a terminal UI for updating Minecraft mods through Modrinth and migrating a mod set between Fabric, Forge, NeoForge, Quilt, and other supported loaders.
+Safely maintain the mods in a Minecraft instance from one command:
 
-## Features
+```powershell
+cd D:\Games\PrismLauncher\instances\MyPack
+upmods
+```
 
-- Identify local `.jar` files by SHA-1 through the Modrinth v2 API.
-- Resolve common native Minecraft, Prism Launcher, Modrinth App, and CurseForge instance layouts.
-- Remember per-instance Minecraft version, loader, release channel, ignore rules, and pins.
-- Safely inspect Fabric, Quilt, Forge, and NeoForge metadata when SHA-1 lookup has no match.
-- Reuse a safe local hash cache for fast repeat scans.
-- Select a target Minecraft release and mod loader.
-- Run inventory and update checks non-interactively with JSON/CI support.
-- Lock and verify reproducible mod sets with portable drift detection.
-- Audit duplicate, incompatible, missing-dependency, legacy, unidentified, and lockfile-drift problems.
-- Preview policy-aware updates, then apply them transactionally only with explicit confirmation.
-- Review and selectively download ordinary updates.
-- Build a separate, complete target-loader mod set without modifying the source instance.
-- Resolve required and optional Modrinth dependencies recursively.
-- Apply ordinary updates with per-session backups and roll back the latest applied session.
-- English and Traditional Chinese TUI.
+`upmods` discovers the real `mods` directory, detects Minecraft and loader metadata conservatively, checks Modrinth for compatible releases, audits the installed set, and applies confirmed updates through a verified backup transaction. It supports Fabric, Forge, NeoForge, and Quilt.
 
 ## Install
 
-Node.js 20 or newer is required.
+Requires [Node.js 20 or newer](https://nodejs.org/).
 
-```bash
-npm install --global upmods
+### PowerShell one-liner
+
+Paste this into PowerShell. It checks Node.js, installs the latest public npm release, and prints the installed version:
+
+```powershell
+$node=Get-Command node.exe -ErrorAction SilentlyContinue; if(-not $node){throw 'upmods requires Node.js 20+: https://nodejs.org/'}; $major=[int]((node --version).TrimStart('v').Split('.')[0]); if($major -lt 20){throw "upmods requires Node.js 20+ (found $(node --version))"}; if(-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)){throw 'npm was not found; reinstall Node.js from https://nodejs.org/'}; npm.cmd install --global upmods@latest; if($LASTEXITCODE -ne 0){throw 'npm could not install upmods'}; upmods.cmd --version
 ```
 
-You can also install a release tarball directly:
+Or install normally:
 
-```bash
-npm install --global ./upmods-0.2.0.tgz
+```powershell
+npm install --global upmods@latest
 ```
 
-## Usage
+Then enter either a Minecraft instance root or its `mods` directory and run `upmods`:
 
-```bash
-upmods [instance-dir]
-upmods scan [instance-dir] [--json] [--no-cache]
-upmods check [instance-dir] [--mc-version=<version>] [--loader=<loader>] [--json]
-upmods audit [instance-dir] [--json] [--strict]
-upmods update [instance-dir] [--dry-run | --yes]
-upmods lock [instance-dir] [--json] [--no-cache]
-upmods verify [instance-dir] [--json] [--no-cache]
-upmods rollback [instance-dir]
-upmods config [instance-dir] [settings options]
-upmods --help
+```powershell
+cd 'D:\Games\PrismLauncher\instances\MyPack'
+upmods
 ```
 
-If no directory is supplied, upmods uses the current working directory. The directory may be an exact `mods` directory or an instance root. Detection is conservative: when launcher metadata conflicts or is missing, pass `--mc-version` and `--loader` or confirm the suggestions in the TUI. If a root contains more than one possible mods directory, upmods refuses to guess and asks for the exact directory.
+## What it does
 
-`upmods scan` provides a fast, non-interactive inventory for scripts and CI. SHA-1 values are cached under `<mods-dir>/.upmods-cache/` and reused while a JAR's name, size, and modification time remain unchanged. Pass `--no-cache` to force a clean hash pass, or `--json` for machine-readable output.
+- Finds common vanilla Minecraft, Prism Launcher, Modrinth App, and CurseForge instance layouts.
+- Remembers each instance's Minecraft version, loader, update channel, ignored projects, and pinned versions.
+- Identifies JARs through Modrinth SHA-1 lookup with a persistent local scan cache.
+- Safely reads Fabric, Quilt, Forge, and NeoForge metadata when a hash has no Modrinth match.
+- Audits duplicate files/projects, loader and Minecraft incompatibilities, dependencies, legacy JARs, unidentified files, and lockfile drift.
+- Plans stable-only or beta-allowed updates with clear updated, skipped, pinned, ignored, and incompatible decisions.
+- Verifies downloads with SHA-512/SHA-1, backs up replaced files, and applies updates transactionally.
+- Supports cross-loader migration without modifying the source instance.
+- Provides an English and Traditional Chinese Ink TUI plus JSON output and CI exit codes.
 
-`upmods check` runs the update check without opening the TUI. It uses saved or detected settings, while `--mc-version=1.21.1` and `--loader=fabric` override them. Use `--json` for structured output and `--fail-on-updates` to exit with code `2` when action is needed.
+## Quick start
 
-`upmods audit --strict` reports startup-breaking errors separately from warnings and exits with code `2` only when errors are present. Plain audit does not fail CI merely because a JAR is unidentified or disabled.
+Interactive maintenance:
 
-`upmods update --dry-run` shows every update, up-to-date, ignored, pinned, and incompatible decision. `upmods update` without `--yes` is also preview-only. `--yes` downloads into an isolated staging directory, verifies Modrinth SHA-512/SHA-1 checksums, creates a backup, and uses the existing transactional Apply path. Apply first copies each download to a private same-filesystem transaction snapshot and verifies its checksums again, so a file changed after download cannot pass into the transaction. Apply installs the filename supplied by the selected Modrinth version, removes the superseded filename, and refuses target collisions. A failed download or Apply never intentionally leaves a partially updated instance.
+```powershell
+upmods .
+```
 
-Before either CLI or TUI starts a confirmed update, the shared core safety policy blocks unresolved startup errors and incompatible plan decisions. It builds a projected dependency graph using the selected target versions, unchanged installed mods, and safe local metadata, so a target version that introduces a missing required dependency or a new declared conflict is refused before download. Dry-run JSON includes this result as `safety`. A planned replacement may repair an existing loader, Minecraft-version, or dependency error; unrelated errors still require the displayed remediation first.
+Preview an update without changing files:
 
-In the TUI, safety is recalculated from the exact selected updates. Before Apply it is recalculated again from successfully verified downloads, so deselecting or failing the update that was meant to repair an incompatibility cannot leave an unsafe partial set eligible for Apply.
+```powershell
+upmods update . --dry-run
+```
 
-Press `Ctrl+C` to cancel a non-interactive scan, check, audit, lock, verify, or update while it is still safe to stop. Cancellation aborts pending hashing, Modrinth requests, retry waits, and downloads, removes managed staging files, and exits with code `130` (`143` for `SIGTERM`). Once transactional Apply or rollback has started, upmods lets that transaction finish or restore instead of interrupting it halfway.
+Apply the reviewed plan with backup and checksum verification:
 
-`upmods lock` writes a portable `.upmods-lock.json` snapshot without absolute paths. Commit it with a modpack or server configuration, then run `upmods verify` locally or in CI to detect added, removed, changed, or unidentified JAR content. Verification exits with code `2` when drift is found.
+```powershell
+upmods update . --yes
+```
 
-### Instance settings
+`upmods update` without `--yes` is preview-only. It never performs a non-interactive Apply implicitly.
 
-Confirmed settings are stored in `<instance-dir>/.upmods.json`:
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `upmods [instance-dir]` | Open the interactive TUI |
+| `upmods scan [instance-dir]` | Inventory and identify local JARs |
+| `upmods check [instance-dir]` | Check for compatible updates |
+| `upmods audit [instance-dir]` | Find health, compatibility, dependency, and drift problems |
+| `upmods update [instance-dir] --dry-run` | Preview all policy decisions and safety blockers |
+| `upmods update [instance-dir] --yes` | Download, verify, back up, and transactionally apply updates |
+| `upmods lock [instance-dir]` | Write a portable `.upmods-lock.json` snapshot |
+| `upmods verify [instance-dir]` | Compare the current mod set with its lockfile |
+| `upmods rollback [instance-dir]` | Restore the latest applied backup session |
+| `upmods config [instance-dir]` | Inspect or change persistent instance settings |
+
+Run `upmods --help` for every option. Common automation examples:
+
+```powershell
+upmods scan . --json
+upmods check . --json --fail-on-updates
+upmods audit . --json --strict
+upmods update . --dry-run --channel=allow-beta
+upmods verify . --json
+```
+
+Exit code `2` means the requested CI condition needs attention, such as updates found with `--fail-on-updates`, strict audit errors, or lockfile drift. Cancellation exits with `130` (`143` for `SIGTERM`).
+
+## Instance detection and settings
+
+The path may be the exact `mods` directory or an instance root. If no path is supplied, the current directory is used. Detection deliberately refuses to guess when metadata conflicts or several possible mod directories exist; provide the exact directory or confirm the suggestion in the TUI.
+
+Confirmed settings are stored atomically in `<instance-dir>/.upmods.json`:
 
 ```json
 {
@@ -88,72 +119,58 @@ Confirmed settings are stored in `<instance-dir>/.upmods.json`:
 }
 ```
 
-Settings can be inspected and changed without editing JSON directly:
+Manage settings without editing JSON:
 
-```bash
+```powershell
 upmods config .
-upmods config . --json
 upmods config . --mc-version=1.21.1 --loader=fabric --channel=stable-only
 upmods config . --ignore=example-project --unignore=old-project
 upmods config . --pin=sodium=mc1.21-0.6.13 --unpin=old-project
-upmods config . --clear-mc-version --clear-loader
 ```
 
-`--ignore`, `--unignore`, `--pin`, and `--unpin` may be repeated. Project references accept a Modrinth project ID or slug, while pins accept either a version ID or exact version number. Config writes are atomic; malformed or unsupported existing settings are preserved and must be fixed or removed explicitly before a change is accepted.
+Project references accept a Modrinth project ID or slug. Pins accept an exact Modrinth version ID or version number and are resolved only within the configured Minecraft version and loader.
 
-Use `allow-beta` to include beta releases. Pins are resolved only within the configured Minecraft version and loader. Local JAR metadata is used for display and audit only; it is never treated as permission to download an unrelated replacement.
+## Safety model
 
-### Workflow
+- Dry-run and TUI review use the same policy and projected dependency analysis as confirmed updates.
+- Startup-breaking audit errors and incompatible update plans block download and Apply with an actionable explanation.
+- Downloads are staged outside the live mod set and verified against Modrinth checksums.
+- Apply revalidates a private same-filesystem snapshot before changing the backup manifest or installed files.
+- A failed Apply automatically restores the original set; the latest successful session can also be rolled back manually.
+- Ambiguous local metadata helps display and audit results but never authorizes an unrelated replacement download.
+- Disabled JARs do not satisfy active dependencies.
+- Apply and rollback become non-interruptible only after their transaction boundary, preventing half-written state.
 
-1. Scan and identify installed mods.
-2. Choose the target Minecraft version and loader.
-3. Review updates, or analyze a cross-loader migration.
-4. Download updates or assemble the target-loader mod set.
-5. Review the result and optionally apply ordinary updates.
+Backups are stored under `<mods-dir>/.upmods-backup/`. Cross-loader output is written to `<mods-dir>/mods-updated/<loader>-<minecraft-version>/` and never overwrites an unmanaged directory.
 
-Cross-loader output is written to:
-
-```text
-<mods-dir>/mods-updated/<loader>-<minecraft-version>/
-```
-
-The output contains `.upmods-migration.json`. upmods will never replace a migration directory that does not contain a valid managed manifest.
-
-### Keyboard controls
+## TUI keys
 
 | Key | Action |
 | --- | --- |
 | `↑` / `↓` | Navigate or scroll |
 | `Enter` | Confirm |
-| `Space` | Toggle a selectable update or optional dependency |
+| `Space` | Toggle an update or optional dependency |
 | `A` / `N` | Select all / clear selectable items |
 | `O` | Open the highlighted Modrinth version page |
-| `S` | Correct the detected source loader |
-| `F` | Use saved/detected settings for a quick check |
-| `B` | Return to the previous safe review step |
-| `C` | Cancel a check, download, or migration build and return to its safe review step |
-| `X` | Rescan the instance from the scan summary |
-| `T` | Retry scanning after an error |
-| `U` | Start download or migration build |
+| `F` | Quick-check with saved or detected settings |
+| `B` | Return to the previous safe step |
+| `C` | Cancel current safe work and return to review |
+| `X` | Rescan the instance |
+| `T` | Retry after a scan error |
 | `L` | Toggle language |
 | `Q` | Quit |
 
-## Safety and limitations
+## Limitations
 
-- Loader migration only creates a mod directory; it does not install or configure a Minecraft loader or launcher instance.
+- Loader migration builds a target mod directory; it does not install a loader or configure a launcher instance.
 - Cross-project substitute mods are not selected automatically.
-- Dependency quality depends on metadata supplied by Modrinth project authors.
-- Unidentified and unavailable mods are reported and skipped.
-- Version-range evaluation for local metadata is conservative and intentionally does not guess for unknown syntaxes.
-- Launcher detection does not install or modify Minecraft loaders; ambiguous metadata must be confirmed.
-- Disabled JARs never satisfy or trigger active dependency relationships. When version metadata is available, audit also checks exact Modrinth dependency versions and local dependency ranges.
-- Ordinary Apply operations back up the replaced files under `.upmods-backup/` first. Versioned filenames are changed transactionally; rollback removes the new filename and restores the original one.
-- Checksum revalidation happens before the backup manifest or installed files are changed. A mismatch removes the private snapshot and asks for a fresh download.
-- Quit and cancellation abort work that has not crossed the Apply/rollback transaction boundary. Apply and rollback deliberately remain non-interruptible once file replacement begins.
+- Compatibility and dependency quality depend on Modrinth and embedded JAR metadata.
+- Unknown local version-range syntaxes are treated conservatively rather than guessed.
+- Unidentified or unavailable mods are reported and skipped.
 
 ## Development
 
-```bash
+```powershell
 pnpm install
 pnpm --filter upmods dev -- ./mods
 pnpm test:integration
@@ -161,9 +178,7 @@ pnpm release:check
 pnpm pack:cli
 ```
 
-The monorepo keeps headless business logic in `packages/core` and Ink presentation/state wiring in `packages/cli`.
-
-`pnpm test:integration` builds the publishable CLI, generates real Prism and CurseForge instance fixtures plus Fabric/Forge/Quilt JAR archives, and exercises the non-interactive workflow against a localhost fake Modrinth API. It covers dry runs, a checksum failure with no Apply, a successful verified Apply using the release filename, a post-update check, and rollback restoration. It requires no external network access.
+The monorepo keeps headless business logic in `packages/core` and Ink presentation, interaction, and command wiring in `packages/cli`. The integration suite builds the published CLI and exercises real launcher/JAR fixtures against a local fake Modrinth API, including failed verification, successful Apply, post-update checks, and rollback.
 
 ## License
 
