@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -13,8 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: pnpm/action-setup@v4
         with:
           version: 9
@@ -26,20 +35,26 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Verify tag matches package version
         shell: bash
-        run: test "v$(node -p "require('./packages/cli/package.json').version")" = "$GITHUB_REF_NAME"
+        run: test "v$(node -p "require('./packages/cli/package.json').version")" = "$RELEASE_TAG"
       - run: pnpm release:check
       - run: pnpm pack:cli
       - name: Smoke-test release tarball
         shell: bash
         run: |
           npm install --global ./release/upmods-*.tgz
-          test "$(upmods --version)" = "${GITHUB_REF_NAME#v}"
+          test "$(upmods --version)" = "${RELEASE_TAG#v}"
           upmods --help
       - name: Publish to npm when NPM_TOKEN is configured
         if: env.NODE_AUTH_TOKEN != ''
-        run: pnpm --dir packages/cli publish --access public --no-git-checks
+        run: pnpm publish packages/cli --access public --no-git-checks
       - name: Create GitHub release
+        if: always() && !cancelled()
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: gh release create "$GITHUB_REF_NAME" release/* --generate-notes --verify-tag
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "GitHub release $RELEASE_TAG already exists"
+          else
+            gh release create "$RELEASE_TAG" release/* --generate-notes --verify-tag
+          fi
