@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { DownloadResult, LoaderMigrationPlan, Mod, ModUpdate } from '@upmods/core';
+import type { AuditReport, DownloadResult, LoaderMigrationPlan, Mod, ModUpdate, ScanResult } from '@upmods/core';
 import { initialState, reducer } from './reducer.js';
 
 function createModUpdate(index: number): ModUpdate {
@@ -325,7 +325,10 @@ test('migration review only toggles optional dependencies', () => {
       },
     ],
   };
-  const review = reducer(initialState, { type: 'MIGRATION_PLAN_COMPLETE', plan });
+  const review = reducer(
+    { ...initialState, phase: 'migration_checking' },
+    { type: 'MIGRATION_PLAN_COMPLETE', plan },
+  );
   const lockedAttempt = reducer(review, { type: 'TOGGLE_OPTIONAL_DEPENDENCY' });
   const onOptional = reducer(lockedAttempt, { type: 'MIGRATION_CURSOR_DOWN' });
   const selected = reducer(onOptional, { type: 'TOGGLE_OPTIONAL_DEPENDENCY' });
@@ -333,4 +336,233 @@ test('migration review only toggles optional dependencies', () => {
   assert.equal(review.phase, 'migration_review');
   assert.deepEqual(lockedAttempt.selectedOptionalEntries, { 'dependency:optional': false });
   assert.equal(selected.selectedOptionalEntries['dependency:optional'], true);
+});
+
+test('saved Minecraft version and loader preselect the TUI environment', () => {
+  let state = reducer(initialState, {
+    type: 'MC_VERSIONS_LOADED',
+    versions: [
+      { version: '1.21.2', versionType: 'release', releaseDate: '', major: true },
+      { version: '1.21.1', versionType: 'release', releaseDate: '', major: true },
+    ],
+    preferredVersion: '1.21.1',
+  });
+  state = reducer(state, {
+    type: 'MOD_LOADERS_LOADED',
+    loaders: [
+      { name: 'fabric', supportedProjectTypes: ['mod'] },
+      { name: 'neoforge', supportedProjectTypes: ['mod'] },
+    ],
+    detection: { detected: 'fabric', candidates: [{ loader: 'fabric', count: 1 }], ambiguous: false },
+    preferredLoader: 'neoforge',
+  });
+  assert.equal(state.selectedMCVersionIndex, 1);
+  assert.equal(state.selectedSourceLoader, 'neoforge');
+  assert.equal(state.selectedTargetLoader, 'neoforge');
+});
+
+test('quick check uses preselected settings and back navigation remains reversible', () => {
+  const prepared = {
+    ...initialState,
+    phase: 'scan_complete' as const,
+    mcVersions: [{ version: '1.21.1', versionType: 'release' as const, releaseDate: '', major: true }],
+    selectedSourceLoader: 'fabric',
+    selectedTargetLoader: 'fabric',
+  };
+  const checking = reducer(prepared, { type: 'QUICK_CHECK' });
+  assert.equal(checking.phase, 'checking');
+  assert.equal(checking.selectedMCVersion, '1.21.1');
+  const back = reducer({ ...checking, phase: 'check_complete' }, { type: 'GO_BACK' });
+  assert.equal(back.phase, 'loader_select');
+});
+
+test('rescan resets workflow state while retaining language', () => {
+  const state = reducer({ ...initialState, locale: 'zh-TW', phase: 'error' }, { type: 'RESCAN' });
+  assert.equal(state.phase, 'scanning');
+  assert.equal(state.locale, 'zh-TW');
+  assert.equal(state.scanGeneration, 1);
+});
+
+test('safe cancellation returns checks and migration analysis to loader selection', () => {
+  assert.equal(
+    reducer({ ...initialState, phase: 'checking' }, { type: 'CANCEL_OPERATION' }).phase,
+    'loader_select',
+  );
+  assert.equal(
+    reducer({ ...initialState, phase: 'migration_checking' }, { type: 'CANCEL_OPERATION' }).phase,
+    'loader_select',
+  );
+});
+
+test('safe cancellation returns downloads and migration builds to their review phase', () => {
+  const download = reducer({
+    ...initialState,
+    phase: 'downloading',
+    activeDownloads: [createModUpdate(1)],
+    downloadProgress: { sha1: { bytes: 10, total: 20 } },
+  }, { type: 'CANCEL_OPERATION' });
+  assert.equal(download.phase, 'check_complete');
+  assert.deepEqual(download.activeDownloads, []);
+  assert.deepEqual(download.downloadProgress, {});
+
+  const migration = reducer({
+    ...initialState,
+    phase: 'migration_building',
+    migrationProgress: { dependency: { bytes: 10, total: 20 } },
+  }, { type: 'CANCEL_OPERATION' });
+  assert.equal(migration.phase, 'migration_review');
+  assert.deepEqual(migration.migrationProgress, {});
+});
+
+test('Apply and rollback ignore generic cancellation to preserve transaction safety', () => {
+  assert.equal(
+    reducer({ ...initialState, phase: 'applying' }, { type: 'CANCEL_OPERATION' }).phase,
+    'applying',
+  );
+  assert.equal(
+    reducer({ ...initialState, phase: 'rollbacking' }, { type: 'CANCEL_OPERATION' }).phase,
+    'rollbacking',
+  );
+});
+
+test('late async events cannot revive or mutate a cancelled operation', () => {
+  const update = createModUpdate(1);
+  const cancelledDownload = reducer({
+    ...initialState,
+    phase: 'downloading',
+    activeDownloads: [update],
+  }, { type: 'CANCEL_OPERATION' });
+  const afterProgress = reducer(cancelledDownload, {
+    type: 'DOWNLOAD_PROGRESS',
+    modName: update.mod.displayName,
+    bytes: 20,
+    total: 20,
+  });
+  const afterResult = reducer(afterProgress, {
+    type: 'DOWNLOAD_RESULT',
+    result: { update, success: true, outputPath: '/late.jar' },
+  });
+  const afterDone = reducer(afterResult, { type: 'DOWNLOAD_ALL_DONE' });
+
+  assert.equal(afterDone.phase, 'check_complete');
+  assert.deepEqual(afterDone.downloadProgress, {});
+  assert.deepEqual(afterDone.downloadResults, []);
+});
+
+test('shared core safety policy blocks TUI download and Apply transitions', () => {
+  const update = createModUpdate(1);
+  const auditReport: AuditReport = {
+    directory: 'D:/mods', errorCount: 1, warningCount: 0, infoCount: 0, healthy: false,
+    issues: [{
+      id: 'missing-required-dependency:mod:library',
+      kind: 'missing-required-dependency',
+      severity: 'error',
+      message: 'Mod requires library.',
+      files: [update.mod.file.filename],
+      remediation: 'Install library.',
+    }],
+  };
+  const state = {
+    ...initialState,
+    phase: 'check_complete' as const,
+    updates: [update],
+    selectedUpdates: { [update.mod.file.sha1]: true },
+    updatePlanItems: [{ mod: update.mod, action: 'update' as const, update, reason: 'test' }],
+    auditReport,
+  };
+
+  assert.equal(reducer(state, { type: 'START_DOWNLOAD' }).phase, 'check_complete');
+  assert.equal(reducer({ ...state, phase: 'done' }, { type: 'START_APPLY' }).phase, 'done');
+});
+
+test('TUI safety uses selected downloads and only successful files at Apply time', () => {
+  const repair = createModUpdate(1);
+  repair.mod.loaders = ['forge'];
+  const ordinary = createModUpdate(2);
+  const auditReport: AuditReport = {
+    directory: 'D:/mods', errorCount: 1, warningCount: 0, infoCount: 0, healthy: false,
+    issues: [{
+      id: 'loader-incompatible:repair',
+      kind: 'loader-incompatible',
+      severity: 'error',
+      message: 'Repair does not support Fabric.',
+      files: [repair.mod.file.filename],
+      remediation: 'Install the Fabric build.',
+    }],
+  };
+  const review = {
+    ...initialState,
+    phase: 'check_complete' as const,
+    updates: [repair, ordinary],
+    selectedUpdates: {
+      [repair.mod.file.sha1]: false,
+      [ordinary.mod.file.sha1]: true,
+    },
+    updatePlanItems: [
+      { mod: repair.mod, action: 'update' as const, update: repair, reason: 'repair' },
+      { mod: ordinary.mod, action: 'update' as const, update: ordinary, reason: 'ordinary' },
+    ],
+    auditReport,
+  };
+
+  assert.equal(reducer(review, { type: 'START_DOWNLOAD' }).phase, 'check_complete');
+  const allSelected = {
+    ...review,
+    selectedUpdates: { [repair.mod.file.sha1]: true, [ordinary.mod.file.sha1]: true },
+  };
+  assert.equal(reducer(allSelected, { type: 'START_DOWNLOAD' }).phase, 'downloading');
+
+  const partial = {
+    ...allSelected,
+    phase: 'done' as const,
+    downloadResults: [createDownloadResult(repair, false), createDownloadResult(ordinary, true)],
+  };
+  assert.equal(reducer(partial, { type: 'START_APPLY' }).phase, 'done');
+  const complete = {
+    ...partial,
+    downloadResults: [createDownloadResult(repair, true), createDownloadResult(ordinary, true)],
+  };
+  assert.equal(reducer(complete, { type: 'START_APPLY' }).phase, 'applying');
+});
+
+test('TUI blocks download and Apply when the selected update introduces a missing dependency', () => {
+  const update = createModUpdate(1);
+  update.dependencies = [{
+    projectId: 'missing-library',
+    versionId: null,
+    fileName: null,
+    dependencyType: 'required',
+  }];
+  const scanResult: ScanResult = {
+    directory: 'D:/mods',
+    totalFiles: 1,
+    identifiedCount: 1,
+    unidentifiedCount: 0,
+    durationMs: 1,
+    identified: [update.mod],
+    unidentified: [],
+  };
+  const state = {
+    ...initialState,
+    phase: 'check_complete' as const,
+    scanResult,
+    updates: [update],
+    selectedUpdates: { [update.mod.file.sha1]: true },
+    updatePlanItems: [{ mod: update.mod, action: 'update' as const, update, reason: 'new release' }],
+    auditReport: {
+      directory: scanResult.directory,
+      issues: [],
+      errorCount: 0,
+      warningCount: 0,
+      infoCount: 0,
+      healthy: true,
+    },
+  };
+
+  assert.equal(reducer(state, { type: 'START_DOWNLOAD' }).phase, 'check_complete');
+  assert.equal(reducer({
+    ...state,
+    phase: 'done',
+    downloadResults: [createDownloadResult(update, true)],
+  }, { type: 'START_APPLY' }).phase, 'done');
 });

@@ -25,6 +25,8 @@ export function ScanPhase({ state, workflowStep }: ScanPhaseProps) {
     ? [
         { key: '↑↓', label: t.common.hotkeys.scroll, tone: 'primary' },
         { key: 'Enter', label: t.common.hotkeys.continue, tone: 'primary' },
+        { key: 'F', label: state.selectedSourceLoader && state.mcVersions.length > 0 ? 'Quick check' : 'Suggested settings', tone: 'success' },
+        { key: 'X', label: t.common.hotkeys.rescan, tone: 'warning' },
         { key: 'Q', label: t.common.hotkeys.quit, tone: 'muted' },
         { key: 'L', label: t.common.hotkeys.language, tone: 'muted' },
       ]

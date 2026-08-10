@@ -10,6 +10,7 @@ interface CheckingPhaseProps {
   subtitle?: string;
   inProgress?: string;
   summary?: string;
+  cancellable?: boolean;
 }
 
 export function CheckingPhase({
@@ -18,11 +19,13 @@ export function CheckingPhase({
   subtitle,
   inProgress,
   summary,
+  cancellable = false,
 }: CheckingPhaseProps) {
   const { t } = useLanguage();
   const spinnerChar = useSpinner(true);
 
   const hotkeys: HotkeyItem[] = [
+    ...(cancellable ? [{ key: 'C', label: t.common.hotkeys.cancel, tone: 'warning' as const }] : []),
     { key: 'Q', label: t.common.hotkeys.quit, tone: 'muted' },
     { key: 'L', label: t.common.hotkeys.language, tone: 'muted' },
   ];

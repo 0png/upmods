@@ -42,6 +42,7 @@ export function LoaderSelectPhase({
   const hotkeys: HotkeyItem[] = [
     { key: '↑↓', label: t.common.hotkeys.navigate, tone: 'primary' },
     { key: 'Enter', label: t.common.hotkeys.confirm, tone: 'primary' },
+    { key: 'B', label: t.common.hotkeys.back, tone: 'muted' },
     ...(mode === 'target'
       ? [{ key: 'S', label: t.common.hotkeys.editSource, tone: 'warning' as const }]
       : []),

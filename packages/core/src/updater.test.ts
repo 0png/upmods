@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UpmodsCore } from './updater.js';
-import type { ModFile, Mod, ScanResult, MCVersion, ModUpdate, DownloadResult } from './types.js';
+import type { AuditReport, ModFile, Mod, ScanResult, MCVersion, ModUpdate, DownloadResult } from './types.js';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 // Mock the scanner, modrinth, and downloader modules
 vi.mock('./scanner.js', () => ({
@@ -12,6 +15,7 @@ vi.mock('./modrinth.js', () => ({
     identifyMods: vi.fn(),
     getGameVersions: vi.fn(),
     checkUpdates: vi.fn(),
+    planUpdates: vi.fn(),
   })),
 }));
 
@@ -416,6 +420,125 @@ describe('UpmodsCore', () => {
 
       // all:done should still be emitted
       // (we can test this separately, but here just verify the return value)
+    });
+  });
+
+  describe('executeUpdatePlan', () => {
+    it('refuses a blocking core audit before creating staging files or starting downloads', async () => {
+      const update = makeUpdate('blocked');
+      const audit: AuditReport = {
+        directory: '/mods', errorCount: 1, warningCount: 0, infoCount: 0, healthy: false,
+        issues: [{
+          id: 'missing-required-dependency:blocked:library',
+          kind: 'missing-required-dependency',
+          severity: 'error',
+          message: 'Blocked requires library, but it is not installed.',
+          files: [update.mod.file.filename],
+          remediation: 'Install library and retry.',
+        }],
+      };
+
+      await expect(core.executeUpdatePlan({
+        minecraftVersion: '1.21.1', loader: 'fabric', channel: 'stable-only',
+        items: [{ mod: update.mod, action: 'update', update, reason: 'test' }], updates: [update],
+      }, '/mods', undefined, audit)).rejects.toThrow('Install library and retry');
+      expect(mockDownloadFile).not.toHaveBeenCalled();
+    });
+
+    it('refuses an update whose projected version introduces a missing dependency', async () => {
+      const update = makeUpdate('projected-block');
+      update.dependencies = [{
+        projectId: 'missing-library',
+        versionId: null,
+        fileName: null,
+        dependencyType: 'required',
+      }];
+      const scan: ScanResult = {
+        directory: '/mods', totalFiles: 1, identifiedCount: 1, unidentifiedCount: 0,
+        durationMs: 1, identified: [update.mod], unidentified: [],
+      };
+      const audit: AuditReport = {
+        directory: '/mods', issues: [], errorCount: 0, warningCount: 0, infoCount: 0, healthy: true,
+      };
+
+      await expect(core.executeUpdatePlan({
+        minecraftVersion: '1.21.1', loader: 'fabric', channel: 'stable-only',
+        items: [{ mod: update.mod, action: 'update', update, reason: 'test' }], updates: [update],
+      }, '/mods', undefined, audit, scan)).rejects.toThrow('missing-library');
+      expect(mockDownloadFile).not.toHaveBeenCalled();
+    });
+
+    it('stages, applies, backs up, and removes staging files only after every download succeeds', async () => {
+      const root = await mkdtemp(path.join(tmpdir(), 'upmods-update-exec-'));
+      const modsDir = path.join(root, 'mods');
+      await mkdir(modsDir);
+      const update = makeUpdate('transaction');
+      update.mod.file.path = path.join(modsDir, 'transaction.jar');
+      update.mod.file.filename = 'transaction.jar';
+      await writeFile(update.mod.file.path, 'old');
+      mockDownloadFile.mockImplementation(async (candidate: ModUpdate, outputDir: string) => {
+        const outputPath = path.join(outputDir, candidate.downloadFilename);
+        await writeFile(outputPath, 'new');
+        return { update: candidate, success: true, outputPath };
+      });
+
+      const result = await core.executeUpdatePlan({
+        minecraftVersion: '1.21.1', loader: 'fabric', channel: 'stable-only',
+        items: [{ mod: update.mod, action: 'update', update, reason: 'test' }], updates: [update],
+      }, modsDir);
+
+      expect(result.applied).toBe(true);
+      await expect(stat(update.mod.file.path)).rejects.toThrow();
+      expect(await readFile(path.join(modsDir, update.downloadFilename), 'utf8')).toBe('new');
+      expect(await readdir(path.join(modsDir, '.upmods-stage'))).toEqual([]);
+      await rm(root, { recursive: true, force: true });
+    });
+
+    it('leaves installed files untouched when any staged download fails', async () => {
+      const root = await mkdtemp(path.join(tmpdir(), 'upmods-update-exec-'));
+      const modsDir = path.join(root, 'mods');
+      await mkdir(modsDir);
+      const update = makeUpdate('failure');
+      update.mod.file.path = path.join(modsDir, 'failure.jar');
+      await writeFile(update.mod.file.path, 'old');
+      mockDownloadFile.mockResolvedValue({ update, success: false, errorReason: 'checksum failed' });
+      const result = await core.executeUpdatePlan({
+        minecraftVersion: '1.21.1', loader: 'fabric', channel: 'stable-only',
+        items: [{ mod: update.mod, action: 'update', update, reason: 'test' }], updates: [update],
+      }, modsDir);
+      expect(result.applied).toBe(false);
+      expect(result.failureReason).toContain('nothing was applied');
+      expect(await readFile(update.mod.file.path, 'utf8')).toBe('old');
+      await rm(root, { recursive: true, force: true });
+    });
+
+    it('cancels after staging without applying and removes the transaction staging directory', async () => {
+      const root = await mkdtemp(path.join(tmpdir(), 'upmods-update-cancel-'));
+      const modsDir = path.join(root, 'mods');
+      await mkdir(modsDir);
+      const update = makeUpdate('cancelled');
+      update.mod.file.path = path.join(modsDir, 'cancelled.jar');
+      update.mod.file.filename = 'cancelled.jar';
+      await writeFile(update.mod.file.path, 'old');
+      const controller = new AbortController();
+      mockDownloadFile.mockImplementation(async (candidate: ModUpdate, outputDir: string) => {
+        const outputPath = path.join(outputDir, candidate.downloadFilename);
+        await writeFile(outputPath, 'new');
+        controller.abort();
+        return { update: candidate, success: true, outputPath };
+      });
+
+      await expect(core.executeUpdatePlan({
+        minecraftVersion: '1.21.1', loader: 'fabric', channel: 'stable-only',
+        items: [{ mod: update.mod, action: 'update', update, reason: 'test' }], updates: [update],
+      }, modsDir, controller.signal)).rejects.toMatchObject({
+        name: 'AbortError',
+        code: 'UPMODS_CANCELLED',
+      });
+
+      expect(await readFile(update.mod.file.path, 'utf8')).toBe('old');
+      expect(await readdir(path.join(modsDir, '.upmods-stage'))).toEqual([]);
+      await rm(root, { recursive: true, force: true });
     });
   });
 });

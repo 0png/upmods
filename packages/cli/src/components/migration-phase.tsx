@@ -26,6 +26,7 @@ export function MigrationLoadingPhase({
   return (
     <CheckingPhase
       workflowStep={workflowStep}
+      cancellable
       title={building ? t.migration.buildingTitle : t.migration.checkingTitle}
       subtitle={building ? t.migration.buildingSubtitle : t.migration.checkingSubtitle}
       inProgress={building ? t.migration.buildingProgress : t.migration.checkingProgress}
@@ -72,6 +73,7 @@ export function MigrationReviewPhase({
     ] : []),
     ...(currentUrl ? [{ key: 'O', label: t.common.hotkeys.open, tone: 'primary' as const }] : []),
     { key: 'U', label: t.common.hotkeys.download, tone: 'warning' },
+    { key: 'B', label: t.common.hotkeys.back, tone: 'muted' },
     { key: 'Q', label: t.common.hotkeys.quit, tone: 'muted' },
     { key: 'L', label: t.common.hotkeys.language, tone: 'muted' },
   ];

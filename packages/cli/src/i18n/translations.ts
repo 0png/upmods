@@ -29,6 +29,10 @@ export interface Translations {
       scroll: string;
       open: string;
       editSource: string;
+      cancel: string;
+      back: string;
+      rescan: string;
+      retryScan: string;
     };
     status: {
       ready: string;
@@ -136,6 +140,10 @@ export interface Translations {
     upToDateSummary: string;
     browsing: string;
     modrinthLink: string;
+    channel: string;
+    auditSummary: string;
+    blockedSummary: string;
+    blockedDetail: string;
   };
   download: {
     title: string;
@@ -158,6 +166,7 @@ export interface Translations {
     backupSession: string;
     backupDir: string;
     rollbackSummary: string;
+    applyBlocked: string;
   };
   error: {
     title: string;
@@ -198,6 +207,10 @@ export const en: Translations = {
       scroll: 'Scroll',
       open: 'Open link',
       editSource: 'Change source',
+      cancel: 'Cancel safely',
+      back: 'Back',
+      rescan: 'Rescan',
+      retryScan: 'Retry scan',
     },
     status: {
       ready: 'Ready',
@@ -305,6 +318,10 @@ export const en: Translations = {
     upToDateSummary: '{count} mods already up to date',
     browsing: 'Browsing {current}/{total}',
     modrinthLink: 'Modrinth version:',
+    channel: 'Channel: {channel}',
+    auditSummary: 'Audit: {errors} errors / {warnings} warnings',
+    blockedSummary: 'Blocked by {count} startup issue(s)',
+    blockedDetail: '{message} Fix: {remediation}',
   },
   download: {
     title: 'Downloads',
@@ -317,7 +334,7 @@ export const en: Translations = {
   summary: {
     title: 'Done',
     subtitle: 'Download session finished.',
-    successSummary: '{count} mods updated',
+    successSummary: '{count} verified update(s) downloaded',
     outputDir: 'Saved to:',
     failedSection: 'Failed downloads',
     failedSummary: '{count} failed downloads',
@@ -327,6 +344,7 @@ export const en: Translations = {
     backupSession: 'Backup session:',
     backupDir: 'Backup dir:',
     rollbackSummary: 'Rolled back {count} mods from the latest session',
+    applyBlocked: '{message} Apply is disabled. Fix: {remediation}',
   },
   error: {
     title: 'Error',
@@ -367,6 +385,10 @@ export const zhTW: Translations = {
       scroll: '捲動',
       open: '開啟連結',
       editSource: '修改來源',
+      cancel: '安全取消',
+      back: '返回',
+      rescan: '重新掃描',
+      retryScan: '重試掃描',
     },
     status: {
       ready: '就緒',
@@ -474,6 +496,10 @@ export const zhTW: Translations = {
     upToDateSummary: '已有 {count} 個模組是最新版本',
     browsing: '目前位置 {current}/{total}',
     modrinthLink: 'Modrinth 版本頁：',
+    channel: '更新頻道：{channel}',
+    auditSummary: '健康檢查：{errors} 個錯誤 / {warnings} 個警告',
+    blockedSummary: '有 {count} 個啟動問題阻止套用',
+    blockedDetail: '{message} 修復方式：{remediation}',
   },
   download: {
     title: '下載',
@@ -486,7 +512,7 @@ export const zhTW: Translations = {
   summary: {
     title: '完成',
     subtitle: '本次下載流程已結束。',
-    successSummary: '已更新 {count} 個模組',
+    successSummary: '已下載並驗證 {count} 個更新',
     outputDir: '儲存至：',
     failedSection: '下載失敗',
     failedSummary: '下載失敗 {count} 個',
@@ -496,6 +522,7 @@ export const zhTW: Translations = {
     backupSession: '備份 session：',
     backupDir: '備份目錄：',
     rollbackSummary: '已從最新 session 回滾 {count} 個模組',
+    applyBlocked: '{message} 已停用套用。修復方式：{remediation}',
   },
   error: {
     title: '錯誤',

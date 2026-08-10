@@ -11,7 +11,10 @@ import type {
   ModUpdate,
   RollbackResult,
   ScanResult,
+  AuditReport,
+  UpdatePlanItem,
 } from '@upmods/core';
+import { evaluateUpdateSafety, selectUpdatePlanItems } from '@upmods/core';
 
 export type AppPhase =
   | 'scanning'
@@ -65,6 +68,9 @@ export interface AppState {
   migrationResult: MigrationResult | null;
   errorMessage: string | null;
   locale: 'en' | 'zh-TW';
+  updatePlanItems: UpdatePlanItem[];
+  auditReport: AuditReport | null;
+  scanGeneration: number;
 }
 
 export type AppAction =
@@ -73,8 +79,8 @@ export type AppAction =
   | { type: 'SCAN_CURSOR_UP' }
   | { type: 'SCAN_CURSOR_DOWN' }
   | { type: 'PROCEED_TO_VERSION_SELECT' }
-  | { type: 'MC_VERSIONS_LOADED'; versions: MCVersion[] }
-  | { type: 'MOD_LOADERS_LOADED'; loaders: ModLoader[]; detection: LoaderDetection }
+  | { type: 'MC_VERSIONS_LOADED'; versions: MCVersion[]; preferredVersion?: string | null }
+  | { type: 'MOD_LOADERS_LOADED'; loaders: ModLoader[]; detection: LoaderDetection; preferredLoader?: string | null }
   | { type: 'CURSOR_UP' }
   | { type: 'CURSOR_DOWN' }
   | { type: 'SELECT_MC_VERSION' }
@@ -83,6 +89,7 @@ export type AppAction =
   | { type: 'EDIT_SOURCE_LOADER' }
   | { type: 'CONFIRM_LOADER_SELECTION' }
   | { type: 'CHECK_COMPLETE'; updates: ModUpdate[]; upToDate: Mod[] }
+  | { type: 'UPDATE_PLAN_COMPLETE'; items: UpdatePlanItem[]; auditReport: AuditReport }
   | { type: 'CHECK_CURSOR_UP' }
   | { type: 'CHECK_CURSOR_DOWN' }
   | { type: 'TOGGLE_UPDATE_SELECTION' }
@@ -111,7 +118,11 @@ export type AppAction =
   | { type: 'SUMMARY_CURSOR_DOWN' }
   | { type: 'TOGGLE_LANGUAGE' }
   | { type: 'QUIT' }
-  | { type: 'ERROR'; message: string };
+  | { type: 'ERROR'; message: string }
+  | { type: 'QUICK_CHECK' }
+  | { type: 'GO_BACK' }
+  | { type: 'CANCEL_OPERATION' }
+  | { type: 'RESCAN' };
 
 export const initialState: AppState = {
   phase: 'scanning',
@@ -146,6 +157,9 @@ export const initialState: AppState = {
   migrationResult: null,
   errorMessage: null,
   locale: 'en',
+  updatePlanItems: [],
+  auditReport: null,
+  scanGeneration: 0,
 };
 
 function getUpdateSelectionMap(updates: ModUpdate[]): Record<string, boolean> {
@@ -157,6 +171,17 @@ function getUpdateSelectionMap(updates: ModUpdate[]): Record<string, boolean> {
 function getSelectedDownloads(state: AppState): ModUpdate[] {
   return state.updates.filter(
     (update) => state.selectedUpdates[update.mod.file.sha1],
+  );
+}
+
+function getSafetyForUpdates(state: AppState, updates: ModUpdate[]) {
+  return evaluateUpdateSafety(
+    selectUpdatePlanItems(
+      state.updatePlanItems,
+      updates.map((update) => update.mod.file.sha1),
+    ),
+    state.auditReport,
+    state.scanResult,
   );
 }
 
@@ -194,28 +219,34 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case 'PROCEED_TO_VERSION_SELECT':
       return { ...state, phase: 'version_select' };
     case 'MC_VERSIONS_LOADED':
+      {
+        const preferredIndex = action.preferredVersion
+          ? action.versions.findIndex((version) => version.version === action.preferredVersion)
+          : -1;
       return {
         ...state,
         mcVersions: action.versions,
-        selectedMCVersionIndex: 0,
+        selectedMCVersionIndex: preferredIndex >= 0 ? preferredIndex : 0,
       };
+      }
     case 'MOD_LOADERS_LOADED': {
-      const detectedIndex = action.detection.detected
-        ? action.loaders.findIndex((loader) => loader.name === action.detection.detected)
+      const detectedLoader = action.preferredLoader ?? action.detection.detected;
+      const detectedIndex = detectedLoader
+        ? action.loaders.findIndex((loader) => loader.name === detectedLoader)
         : -1;
       const initialIndex = detectedIndex >= 0 ? detectedIndex : 0;
-      const detectedLoader = detectedIndex >= 0
+      const selectedLoader = detectedIndex >= 0
         ? action.loaders[detectedIndex]?.name ?? null
         : null;
       return {
         ...state,
         modLoaders: action.loaders,
         loaderDetection: action.detection,
-        loaderSelectionMode: detectedLoader ? 'target' : 'source',
+        loaderSelectionMode: selectedLoader ? 'target' : 'source',
         sourceLoaderIndex: initialIndex,
         targetLoaderIndex: initialIndex,
-        selectedSourceLoader: detectedLoader,
-        selectedTargetLoader: detectedLoader,
+        selectedSourceLoader: selectedLoader,
+        selectedTargetLoader: selectedLoader,
       };
     }
     case 'CURSOR_UP':
@@ -325,7 +356,27 @@ export function reducer(state: AppState, action: AppAction): AppState {
         lastRollbackResult: null,
         downloadProgress: {},
         summaryCursorIndex: 0,
+        updatePlanItems: [],
+        auditReport: null,
       };
+    case 'UPDATE_PLAN_COMPLETE': {
+      if (state.phase !== 'checking') return state;
+      const updates = action.items.flatMap((item) => item.update ? [item.update] : []);
+      const upToDate = action.items.filter((item) => item.action === 'up-to-date').map((item) => item.mod);
+      return {
+        ...state,
+        phase: 'check_complete',
+        updates,
+        selectedUpdates: getUpdateSelectionMap(updates),
+        upToDate,
+        updatePlanItems: action.items,
+        auditReport: action.auditReport,
+        checkCursorIndex: 0,
+        activeDownloads: [],
+        downloadResults: [],
+        downloadProgress: {},
+      };
+    }
     case 'CHECK_CURSOR_UP':
       if (getCheckListTotal(state) <= 1) return state;
       return {
@@ -371,6 +422,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
       {
         const activeDownloads = getSelectedDownloads(state);
         if (activeDownloads.length === 0) return state;
+        if (!getSafetyForUpdates(state, activeDownloads).safe) return state;
 
         return {
           ...state,
@@ -385,6 +437,10 @@ export function reducer(state: AppState, action: AppAction): AppState {
         };
       }
     case 'START_APPLY':
+      if (!getSafetyForUpdates(
+        state,
+        state.downloadResults.filter((result) => result.success).map((result) => result.update),
+      ).safe) return state;
       return { ...state, phase: 'applying', lastRollbackResult: null };
     case 'APPLY_COMPLETE':
       return {
@@ -419,6 +475,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
           : state.downloadCursorIndex + 1,
       };
     case 'DOWNLOAD_PROGRESS':
+      if (state.phase !== 'downloading') return state;
       return {
         ...state,
         downloadProgress: {
@@ -427,11 +484,13 @@ export function reducer(state: AppState, action: AppAction): AppState {
         },
       };
     case 'DOWNLOAD_RESULT':
+      if (state.phase !== 'downloading') return state;
       return {
         ...state,
         downloadResults: [...state.downloadResults, action.result],
       };
     case 'DOWNLOAD_ALL_DONE':
+      if (state.phase !== 'downloading') return state;
       return {
         ...state,
         phase: 'done',
@@ -440,6 +499,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         summaryCursorIndex: 0,
       };
     case 'MIGRATION_PLAN_COMPLETE':
+      if (state.phase !== 'migration_checking') return state;
       return {
         ...state,
         phase: 'migration_review',
@@ -505,6 +565,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case 'START_MIGRATION_BUILD':
       return { ...state, phase: 'migration_building', migrationProgress: {} };
     case 'MIGRATION_PROGRESS':
+      if (state.phase !== 'migration_building') return state;
       return {
         ...state,
         migrationProgress: {
@@ -513,6 +574,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         },
       };
     case 'MIGRATION_COMPLETE':
+      if (state.phase !== 'migration_building') return state;
       return { ...state, phase: 'migration_done', migrationResult: action.result };
     case 'SUMMARY_CURSOR_UP':
       if (state.downloadResults.filter((result) => !result.success).length <= 1) return state;
@@ -534,6 +596,41 @@ export function reducer(state: AppState, action: AppAction): AppState {
     }
     case 'TOGGLE_LANGUAGE':
       return { ...state, locale: state.locale === 'en' ? 'zh-TW' : 'en' };
+    case 'QUICK_CHECK': {
+      const selectedVersion = state.mcVersions[state.selectedMCVersionIndex]?.version;
+      if (!selectedVersion || !state.selectedSourceLoader || !state.selectedTargetLoader) return state;
+      return { ...state, selectedMCVersion: selectedVersion, phase: 'checking' };
+    }
+    case 'GO_BACK':
+      if (state.phase === 'version_select') return { ...state, phase: 'scan_complete' };
+      if (state.phase === 'loader_select') return { ...state, phase: 'version_select' };
+      if (state.phase === 'check_complete' || state.phase === 'migration_review') return { ...state, phase: 'loader_select' };
+      if (state.phase === 'done') return { ...state, phase: 'check_complete' };
+      return state;
+    case 'CANCEL_OPERATION':
+      if (state.phase === 'checking' || state.phase === 'migration_checking') {
+        return { ...state, phase: 'loader_select' };
+      }
+      if (state.phase === 'migration_building') {
+        return { ...state, phase: 'migration_review', migrationProgress: {} };
+      }
+      if (state.phase === 'downloading') {
+        return {
+          ...state,
+          phase: 'check_complete',
+          activeDownloads: [],
+          downloadResults: [],
+          downloadProgress: {},
+          downloadCursorIndex: 0,
+        };
+      }
+      return state;
+    case 'RESCAN':
+      return {
+        ...initialState,
+        locale: state.locale,
+        scanGeneration: state.scanGeneration + 1,
+      };
     case 'QUIT':
       return state;
     case 'ERROR':

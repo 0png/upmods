@@ -1,13 +1,51 @@
 export { UpmodsCore } from './updater.js';
+export type { UpmodsCoreOptions } from './updater.js';
+export type { ModrinthClientOptions } from './modrinth.js';
 export type { CoreEvents } from './events.js';
+export {
+  OperationCancelledError,
+  isOperationCancelledError,
+  throwIfAborted,
+} from './abort.js';
 export type {
   ModFile,
   Mod,
   ModUpdate,
   MCVersion,
   ScanResult,
+  ScanOptions,
+  LockedMod,
+  LockedUnidentifiedFile,
+  ModpackLockfile,
+  LockfileChangeKind,
+  LockfileChange,
+  LockfileVerificationResult,
+  SupportedModLoader,
+  LocalModDependency,
+  LocalModMetadata,
+  UpdateChannel,
+  InstanceConfig,
+  InstanceConfigPatch,
+  InstanceConfigUpdateResult,
+  InstanceKind,
+  DetectionConfidence,
+  InstanceSuggestion,
+  InstanceResolution,
+  UpdatePolicy,
+  UpdatePlanAction,
+  UpdatePlanItem,
+  UpdatePlan,
+  UpdateExecutionResult,
+  AuditSeverity,
+  AuditIssueKind,
+  AuditIssue,
+  AuditOptions,
+  AuditReport,
+  UpdateSafetyBlocker,
+  UpdateSafetyReport,
   DownloadResult,
   BackupEntry,
+  BackupSessionStatus,
   BackupSessionManifest,
   ApplyResult,
   RollbackResult,
@@ -27,3 +65,27 @@ export type {
   MigrationResult,
 } from './types.js';
 export { detectSourceLoader } from './migration.js';
+export {
+  MODPACK_LOCKFILE_FILENAME,
+  createModpackLockfile,
+  writeModpackLockfile,
+  readModpackLockfile,
+  compareModpackLockfile,
+  verifyModpackLockfile,
+} from './lockfile.js';
+export { readLocalJarMetadata } from './jar-metadata.js';
+export {
+  INSTANCE_CONFIG_FILENAME,
+  readInstanceConfig,
+  writeInstanceConfig,
+  patchInstanceConfig,
+  getInstanceConfig,
+  updateInstanceConfig,
+  resolveInstance,
+} from './instance.js';
+export {
+  auditModSet,
+  evaluateUpdateSafety,
+  selectUpdatePlanItems,
+  updateSafetyFailureMessage,
+} from './audit.js';

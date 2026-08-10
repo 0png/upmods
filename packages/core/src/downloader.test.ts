@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { tmpdir } from 'node:os';
 import { mkdtemp, readFile, stat, rm } from 'node:fs/promises';
 import { Readable } from 'node:stream';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { downloadFile } from './downloader.js';
 import type { ModUpdate, Mod, ModFile } from './types.js';
@@ -162,5 +163,70 @@ describe('downloadFile', () => {
     await downloadFile(update, tempDir, vi.fn());
 
     expect(mockEnsureDir).toHaveBeenCalledWith(tempDir);
+  });
+
+  it('verifies Modrinth SHA-512 before publishing the download', async () => {
+    const content = Buffer.from('verified content');
+    mockRequest.mockResolvedValue({
+      statusCode: 200,
+      headers: { 'content-length': String(content.length) },
+      body: Readable.from([content]),
+    });
+    const update = makeUpdate('hash', 'verified-mod');
+    update.downloadSha512 = createHash('sha512').update(content).digest('hex');
+
+    const result = await downloadFile(update, tempDir, vi.fn());
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a checksum mismatch and removes the partial file', async () => {
+    const content = Buffer.from('tampered content');
+    mockRequest.mockResolvedValue({
+      statusCode: 200,
+      headers: { 'content-length': String(content.length) },
+      body: Readable.from([content]),
+    });
+    const update = makeUpdate('hash', 'tampered-mod');
+    update.downloadSha512 = '0'.repeat(128);
+
+    const result = await downloadFile(update, tempDir, vi.fn());
+
+    expect(result.success).toBe(false);
+    expect(result.errorReason).toContain('SHA-512 mismatch');
+    await expect(stat(path.join(tempDir, `${update.downloadFilename}.tmp`))).rejects.toThrow();
+    await expect(stat(path.join(tempDir, update.downloadFilename))).rejects.toThrow();
+  });
+
+  it('rejects download filenames that escape the output directory', async () => {
+    const update = makeUpdate('hash', 'unsafe-mod');
+    update.downloadFilename = path.join('..', 'escaped.jar');
+
+    const result = await downloadFile(update, tempDir, vi.fn());
+
+    expect(result.success).toBe(false);
+    expect(result.errorReason).toContain('Unsafe download filename');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('aborts an in-progress transfer and removes temporary output', async () => {
+    const controller = new AbortController();
+    const first = Buffer.from('first chunk');
+    const second = Buffer.from('second chunk');
+    mockRequest.mockResolvedValue({
+      statusCode: 200,
+      headers: { 'content-length': String(first.length + second.length) },
+      body: Readable.from((async function* () {
+        yield first;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        yield second;
+      })()),
+    });
+    const update = makeUpdate('cancel', 'cancelled-mod');
+
+    const request = downloadFile(update, tempDir, () => controller.abort(), controller.signal);
+    await expect(request).rejects.toMatchObject({ name: 'AbortError', code: 'UPMODS_CANCELLED' });
+    await expect(stat(path.join(tempDir, `${update.downloadFilename}.tmp`))).rejects.toThrow();
+    await expect(stat(path.join(tempDir, update.downloadFilename))).rejects.toThrow();
   });
 });

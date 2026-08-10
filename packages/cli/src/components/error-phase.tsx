@@ -11,6 +11,7 @@ interface ErrorPhaseProps {
 export function ErrorPhase({ state }: ErrorPhaseProps) {
   const { t } = useLanguage();
   const hotkeys: HotkeyItem[] = [
+    { key: 'T', label: t.common.hotkeys.retryScan, tone: 'primary' },
     { key: 'Q', label: t.common.hotkeys.quit, tone: 'danger' },
     { key: 'L', label: t.common.hotkeys.language, tone: 'muted' },
   ];

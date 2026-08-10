@@ -165,6 +165,81 @@ describe('ModrinthClient', () => {
   });
 
   describe('getGameVersions', () => {
+    it('rejects a pre-aborted request without contacting Modrinth', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(client.getGameVersions(controller.signal)).rejects.toMatchObject({
+        name: 'AbortError',
+        code: 'UPMODS_CANCELLED',
+      });
+      expect(mockRequest).not.toHaveBeenCalled();
+    });
+
+    it('cancels retry backoff without sending another request', async () => {
+      const controller = new AbortController();
+      const resume = vi.fn();
+      client = new ModrinthClient('test-agent/1.0.0', { retryBaseDelayMs: 10_000 });
+      mockRequest.mockImplementationOnce(async () => {
+        controller.abort();
+        return {
+          statusCode: 503,
+          headers: {},
+          body: { resume },
+        };
+      });
+
+      await expect(client.getGameVersions(controller.signal)).rejects.toMatchObject({
+        name: 'AbortError',
+        code: 'UPMODS_CANCELLED',
+      });
+      expect(resume).toHaveBeenCalledOnce();
+      expect(mockRequest).toHaveBeenCalledOnce();
+    });
+
+    it('retries a transient API response and drains it before retrying', async () => {
+      const resume = vi.fn();
+      client = new ModrinthClient('test-agent/1.0.0', { retryBaseDelayMs: 0 });
+      mockRequest
+        .mockResolvedValueOnce({
+          statusCode: 503,
+          headers: {},
+          body: { resume },
+        })
+        .mockResolvedValueOnce({
+          statusCode: 200,
+          headers: {},
+          body: {
+            json: async () => [{
+              version: '1.21.1',
+              version_type: 'release',
+              date: '2024-08-08T00:00:00Z',
+              major: true,
+            }],
+          },
+        });
+
+      const result = await client.getGameVersions();
+
+      expect(result[0].version).toBe('1.21.1');
+      expect(resume).toHaveBeenCalledOnce();
+      expect(mockRequest).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries a transient network failure', async () => {
+      client = new ModrinthClient('test-agent/1.0.0', { retryBaseDelayMs: 0 });
+      mockRequest
+        .mockRejectedValueOnce(new Error('ECONNRESET'))
+        .mockResolvedValueOnce({
+          statusCode: 200,
+          headers: {},
+          body: { json: async () => [] },
+        });
+
+      await expect(client.getGameVersions()).resolves.toEqual([]);
+      expect(mockRequest).toHaveBeenCalledTimes(2);
+    });
+
     it('returns only release versions sorted newest-first', async () => {
       const mockResponse: ModrinthGameVersionResponse[] = [
         {
@@ -544,6 +619,100 @@ describe('ModrinthClient', () => {
 
       expect(result.updates.length).toBe(0);
       expect(result.upToDate.length).toBe(1);
+    });
+  });
+
+  it('accepts an explicit HTTP(S) API base but rejects credentials and other protocols', () => {
+    expect(new ModrinthClient('test', { baseUrl: 'http://127.0.0.1:3000/v2/' }).baseUrl)
+      .toBe('http://127.0.0.1:3000/v2');
+    expect(() => new ModrinthClient('test', { baseUrl: 'https://user:secret@example.com/v2' }))
+      .toThrow('without embedded credentials');
+    expect(() => new ModrinthClient('test', { baseUrl: 'file:///tmp/modrinth' }))
+      .toThrow('must use HTTP(S)');
+    expect(() => new ModrinthClient('test', { baseUrl: 'not a URL' }))
+      .toThrow('valid absolute HTTP(S) URL');
+  });
+
+  describe('planUpdates', () => {
+    const makeMod = (projectId: string): Mod => ({
+      file: { path: `/mods/${projectId}.jar`, filename: `${projectId}.jar`, sha1: `${projectId}-sha`, sizeBytes: 10 },
+      projectId,
+      projectSlug: `${projectId}-slug`,
+      displayName: projectId,
+      installedVersionId: `${projectId}-v1`,
+      installedVersionNumber: '1.0.0',
+      loaders: ['fabric'],
+      supportedMcVersions: ['1.21.1'],
+    });
+
+    it('applies ignore and installed-version pin rules without network calls', async () => {
+      const ignored = makeMod('ignored');
+      const pinned = makeMod('pinned');
+      const plan = await client.planUpdates([ignored, pinned], '1.21.1', 'fabric', {
+        channel: 'stable-only',
+        ignored: ['ignored-slug'],
+        pinned: { pinned: '1.0.0' },
+      });
+      expect(plan.items.map((item) => item.action)).toEqual(['ignored', 'pinned']);
+      expect(mockRequest).not.toHaveBeenCalled();
+    });
+
+    it('accepts beta candidates for allow-beta', async () => {
+      const mod = makeMod('ordinary');
+      const beta: ModrinthVersionResponse = {
+        id: 'ordinary-beta', project_id: 'ordinary', name: 'Beta', version_number: '2.0.0-beta',
+        version_type: 'beta', loaders: ['fabric'], game_versions: ['1.21.1'],
+        files: [{
+          url: 'https://example.com/beta.jar', filename: 'beta.jar', primary: true, size: 10,
+          hashes: { sha1: 'beta-sha', sha512: 'beta-sha512' },
+        }],
+      };
+      mockRequest.mockResolvedValue({ statusCode: 200, body: { json: async () => ({ 'ordinary-sha': beta }) } });
+      const plan = await client.planUpdates([mod], '1.21.1', 'fabric', {
+        channel: 'allow-beta', ignored: [], pinned: {},
+      });
+      expect(plan.updates[0]?.latestVersionId).toBe('ordinary-beta');
+    });
+
+    it('falls back to the newest release when the bulk candidate is beta in stable-only mode', async () => {
+      const mod = makeMod('ordinary');
+      const beta: ModrinthVersionResponse = {
+        id: 'ordinary-beta', project_id: 'ordinary', name: 'Beta', version_number: '3.0.0-beta',
+        version_type: 'beta', loaders: ['fabric'], game_versions: ['1.21.1'], files: [],
+      };
+      const release: ModrinthVersionResponse = {
+        id: 'ordinary-release', project_id: 'ordinary', name: 'Release', version_number: '2.0.0',
+        version_type: 'release', loaders: ['fabric'], game_versions: ['1.21.1'],
+        files: [{
+          url: 'https://example.com/release.jar', filename: 'release.jar', primary: true, size: 10,
+          hashes: { sha1: 'release-sha', sha512: 'release-sha512' },
+        }],
+      };
+      mockRequest
+        .mockResolvedValueOnce({ statusCode: 200, body: { json: async () => ({ 'ordinary-sha': beta }) } })
+        .mockResolvedValueOnce({ statusCode: 200, body: { json: async () => [beta, release] } });
+      const plan = await client.planUpdates([mod], '1.21.1', 'fabric', {
+        channel: 'stable-only', ignored: [], pinned: {},
+      });
+      expect(plan.updates[0]?.latestVersionId).toBe('ordinary-release');
+    });
+
+    it('resolves an exact pinned version number for the target environment', async () => {
+      const mod = makeMod('pinned');
+      const version: ModrinthVersionResponse = {
+        id: 'pinned-v2', project_id: 'pinned', name: 'Pinned 2', version_number: '2.0.0',
+        loaders: ['fabric'], game_versions: ['1.21.1'],
+        files: [{
+          url: 'https://example.com/pinned.jar', filename: 'pinned-2.jar', primary: true, size: 10,
+          hashes: { sha1: 'new-sha', sha512: 'new-sha512' },
+        }],
+      };
+      mockRequest.mockResolvedValue({ statusCode: 200, body: { json: async () => [version] } });
+      const plan = await client.planUpdates([mod], '1.21.1', 'fabric', {
+        channel: 'stable-only', ignored: [], pinned: { 'pinned-slug': '2.0.0' },
+      });
+      expect(plan.items[0]).toMatchObject({ action: 'update', pinnedVersion: '2.0.0' });
+      expect(plan.updates[0]?.latestVersionId).toBe('pinned-v2');
     });
   });
 });

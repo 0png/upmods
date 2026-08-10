@@ -9,7 +9,16 @@ import type {
   ModDependency,
   ModLoader,
   ModUpdate,
+  UpdatePlan,
+  UpdatePlanItem,
+  UpdatePolicy,
 } from './types.js';
+import {
+  abortableDelay,
+  isOperationCancelledError,
+  normalizeCancellation,
+  throwIfAborted,
+} from './abort.js';
 
 export interface ModrinthVersionResponse {
   id: string;
@@ -18,6 +27,7 @@ export interface ModrinthVersionResponse {
   version_number: string;
   loaders: string[];
   game_versions: string[];
+  version_type?: 'release' | 'beta' | 'alpha';
   dependencies?: Array<{
     version_id: string | null;
     project_id: string | null;
@@ -54,14 +64,94 @@ export interface ModrinthGameVersionResponse {
   major: boolean;
 }
 
+type RequestOptions = NonNullable<Parameters<typeof request>[1]>;
+type RequestResult = Awaited<ReturnType<typeof request>>;
+
+export interface ModrinthClientOptions {
+  baseUrl?: string;
+  maxRetries?: number;
+  retryBaseDelayMs?: number;
+  headersTimeoutMs?: number;
+  bodyTimeoutMs?: number;
+}
+
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+
+function retryAfterMs(value: string | string[] | undefined): number | null {
+  if (Array.isArray(value)) value = value[0];
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const date = Date.parse(value);
+  return Number.isNaN(date) ? null : Math.max(0, date - Date.now());
+}
+
 export class ModrinthClient {
-  readonly baseUrl = 'https://api.modrinth.com/v2';
+  readonly baseUrl: string;
   readonly userAgent: string;
   private cachedGameVersions: MCVersion[] | null = null;
   private cachedModLoaders: ModLoader[] | null = null;
+  private readonly maxRetries: number;
+  private readonly retryBaseDelayMs: number;
+  private readonly headersTimeoutMs: number;
+  private readonly bodyTimeoutMs: number;
 
-  constructor(userAgent = 'upmods/0.1.0 (https://github.com/0png/upmods)') {
+  constructor(
+    userAgent = 'upmods/0.2.0 (https://github.com/0png/upmods)',
+    options: ModrinthClientOptions = {},
+  ) {
     this.userAgent = userAgent;
+    let baseUrl: URL;
+    try {
+      baseUrl = new URL(options.baseUrl ?? 'https://api.modrinth.com/v2');
+    } catch {
+      throw new Error('Modrinth API base URL must be a valid absolute HTTP(S) URL.');
+    }
+    if (!['http:', 'https:'].includes(baseUrl.protocol) || baseUrl.username || baseUrl.password) {
+      throw new Error('Modrinth API base URL must use HTTP(S) without embedded credentials.');
+    }
+    this.baseUrl = baseUrl.href.replace(/\/+$/, '');
+    this.maxRetries = Math.max(0, options.maxRetries ?? 2);
+    this.retryBaseDelayMs = Math.max(0, options.retryBaseDelayMs ?? 200);
+    this.headersTimeoutMs = Math.max(1, options.headersTimeoutMs ?? 10_000);
+    this.bodyTimeoutMs = Math.max(1, options.bodyTimeoutMs ?? 30_000);
+  }
+
+  private async apiRequest(url: string, options: RequestOptions = {}): Promise<RequestResult> {
+    const signal = options.signal as AbortSignal | undefined;
+    throwIfAborted(signal);
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
+      try {
+        const response = await request(url, {
+          ...options,
+          headersTimeout: this.headersTimeoutMs,
+          bodyTimeout: this.bodyTimeoutMs,
+        });
+        if (!RETRYABLE_STATUS_CODES.has(response.statusCode) || attempt === this.maxRetries) {
+          return response;
+        }
+
+        const requestedDelay = retryAfterMs(response.headers['retry-after']);
+        response.body.resume();
+        await abortableDelay(
+          Math.min(requestedDelay ?? this.retryBaseDelayMs * 2 ** attempt, 2_000),
+          signal,
+        );
+      } catch (error) {
+        const normalized = normalizeCancellation(error, signal);
+        if (isOperationCancelledError(normalized)) throw normalized;
+        lastError = normalized;
+        if (attempt === this.maxRetries) throw normalized;
+        await abortableDelay(Math.min(this.retryBaseDelayMs * 2 ** attempt, 2_000), signal);
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('Modrinth request failed');
+  }
+
+  private apiError(response: RequestResult): Error {
+    response.body.resume();
+    return new Error(`Modrinth API error: ${response.statusCode}`);
   }
 
   /**
@@ -69,12 +159,13 @@ export class ModrinthClient {
    * @param sha1s Array of lowercase hex SHA-1 hashes
    * @returns Map of sha1 → Mod (hashes not found in Modrinth are absent from map)
    */
-  async identifyMods(sha1s: string[]): Promise<Map<string, Mod>> {
+  async identifyMods(sha1s: string[], signal?: AbortSignal): Promise<Map<string, Mod>> {
+    throwIfAborted(signal);
     if (sha1s.length === 0) {
       return new Map();
     }
 
-    const response = await request(`${this.baseUrl}/version_files`, {
+    const response = await this.apiRequest(`${this.baseUrl}/version_files`, {
       method: 'POST',
       headers: {
         'User-Agent': this.userAgent,
@@ -84,16 +175,19 @@ export class ModrinthClient {
         hashes: sha1s,
         algorithm: 'sha1',
       }),
+      signal,
     });
 
     if (response.statusCode !== 200) {
-      throw new Error(`Modrinth API error: ${response.statusCode}`);
+      throw this.apiError(response);
     }
 
     const data = (await response.body.json()) as Record<string, ModrinthVersionResponse>;
+    throwIfAborted(signal);
     const result = new Map<string, Mod>();
 
     for (const [sha1, versionData] of Object.entries(data)) {
+      throwIfAborted(signal);
       // Find the file in the version that matches this hash
       const file = versionData.files.find((f) => f.hashes.sha1 === sha1);
       if (!file) continue;
@@ -112,6 +206,7 @@ export class ModrinthClient {
         installedVersionNumber: versionData.version_number,
         loaders: versionData.loaders,
         supportedMcVersions: versionData.game_versions,
+        dependencies: this.mapDependencies(versionData),
       });
     }
 
@@ -119,14 +214,15 @@ export class ModrinthClient {
     // GET /v2/projects?ids=["id1","id2",...] returns all projects in one request.
     const projectIds = [...new Set([...result.values()].map((m) => m.projectId))];
     if (projectIds.length > 0) {
-      const projectsResponse = await request(
+      const projectsResponse = await this.apiRequest(
         `${this.baseUrl}/projects?ids=${encodeURIComponent(JSON.stringify(projectIds))}`,
-        { headers: { 'User-Agent': this.userAgent } },
+        { headers: { 'User-Agent': this.userAgent }, signal },
       );
       if (projectsResponse.statusCode === 200) {
         const projects = (await projectsResponse.body.json()) as ModrinthProjectResponse[];
         const projectMap = new Map(projects.map((p) => [p.id, p]));
         for (const [sha1, mod] of result.entries()) {
+          throwIfAborted(signal);
           const project = projectMap.get(mod.projectId);
           if (project) {
             result.set(sha1, {
@@ -136,6 +232,8 @@ export class ModrinthClient {
             });
           }
         }
+      } else {
+        projectsResponse.body.resume();
       }
     }
 
@@ -147,23 +245,26 @@ export class ModrinthClient {
    * Results are cached after the first call.
    * @returns Array of MCVersion objects, sorted newest-first by release date
    */
-  async getGameVersions(): Promise<MCVersion[]> {
+  async getGameVersions(signal?: AbortSignal): Promise<MCVersion[]> {
+    throwIfAborted(signal);
     if (this.cachedGameVersions) {
       return this.cachedGameVersions;
     }
 
-    const response = await request(`${this.baseUrl}/tag/game_version`, {
+    const response = await this.apiRequest(`${this.baseUrl}/tag/game_version`, {
       method: 'GET',
       headers: {
         'User-Agent': this.userAgent,
       },
+      signal,
     });
 
     if (response.statusCode !== 200) {
-      throw new Error(`Modrinth API error: ${response.statusCode}`);
+      throw this.apiError(response);
     }
 
     const data = (await response.body.json()) as ModrinthGameVersionResponse[];
+    throwIfAborted(signal);
 
     // Filter to release versions only and map to MCVersion
     const versions = data
@@ -180,18 +281,21 @@ export class ModrinthClient {
     return versions;
   }
 
-  async getModLoaders(): Promise<ModLoader[]> {
+  async getModLoaders(signal?: AbortSignal): Promise<ModLoader[]> {
+    throwIfAborted(signal);
     if (this.cachedModLoaders) return this.cachedModLoaders;
 
-    const response = await request(`${this.baseUrl}/tag/loader`, {
+    const response = await this.apiRequest(`${this.baseUrl}/tag/loader`, {
       headers: { 'User-Agent': this.userAgent },
+      signal,
     });
     if (response.statusCode !== 200) {
-      throw new Error(`Modrinth API error: ${response.statusCode}`);
+      throw this.apiError(response);
     }
 
     const priority = ['fabric', 'forge', 'neoforge', 'quilt'];
     const data = (await response.body.json()) as ModrinthLoaderResponse[];
+    throwIfAborted(signal);
     this.cachedModLoaders = data
       .filter((loader) => loader.supported_project_types.includes('mod'))
       .map((loader) => ({
@@ -238,16 +342,17 @@ export class ModrinthClient {
     };
   }
 
-  private async getVersion(versionId: string): Promise<ModrinthVersionResponse | null> {
-    const response = await request(`${this.baseUrl}/version/${encodeURIComponent(versionId)}`, {
+  private async getVersion(versionId: string, signal?: AbortSignal): Promise<ModrinthVersionResponse | null> {
+    const response = await this.apiRequest(`${this.baseUrl}/version/${encodeURIComponent(versionId)}`, {
       headers: { 'User-Agent': this.userAgent },
+      signal,
     });
     if (response.statusCode === 404) {
       response.body.resume();
       return null;
     }
     if (response.statusCode !== 200) {
-      throw new Error(`Modrinth API error: ${response.statusCode}`);
+      throw this.apiError(response);
     }
     return await response.body.json() as ModrinthVersionResponse;
   }
@@ -256,36 +361,75 @@ export class ModrinthClient {
     projectId: string,
     loader: string,
     mcVersion: string,
+    signal?: AbortSignal,
   ): Promise<ModrinthVersionResponse | null> {
     const query = new URLSearchParams({
       loaders: JSON.stringify([loader]),
       game_versions: JSON.stringify([mcVersion]),
       include_changelog: 'false',
     });
-    const response = await request(
+    const response = await this.apiRequest(
       `${this.baseUrl}/project/${encodeURIComponent(projectId)}/version?${query.toString()}`,
-      { headers: { 'User-Agent': this.userAgent } },
+      { headers: { 'User-Agent': this.userAgent }, signal },
     );
     if (response.statusCode === 404) {
       response.body.resume();
       return null;
     }
     if (response.statusCode !== 200) {
-      throw new Error(`Modrinth API error: ${response.statusCode}`);
+      throw this.apiError(response);
     }
     const versions = await response.body.json() as ModrinthVersionResponse[];
     return versions.find((version) =>
       version.loaders.includes(loader) && version.game_versions.includes(mcVersion)) ?? null;
   }
 
-  private async getProjects(projectIds: string[]): Promise<Map<string, ModrinthProjectResponse>> {
+  private async getCompatibleProjectVersions(
+    projectId: string,
+    loader: string,
+    mcVersion: string,
+    channel: UpdatePolicy['channel'],
+    signal?: AbortSignal,
+  ): Promise<ModrinthVersionResponse[]> {
+    const query = new URLSearchParams({
+      loaders: JSON.stringify([loader]),
+      game_versions: JSON.stringify([mcVersion]),
+      include_changelog: 'false',
+    });
+    const response = await this.apiRequest(
+      `${this.baseUrl}/project/${encodeURIComponent(projectId)}/version?${query.toString()}`,
+      { headers: { 'User-Agent': this.userAgent }, signal },
+    );
+    if (response.statusCode === 404) {
+      response.body.resume();
+      return [];
+    }
+    if (response.statusCode !== 200) throw this.apiError(response);
+    const versions = await response.body.json() as ModrinthVersionResponse[];
+    return versions.filter((version) => this.channelAllows(version, channel));
+  }
+
+  private channelAllows(version: ModrinthVersionResponse, channel: UpdatePolicy['channel']): boolean {
+    // Older/mocked responses can omit version_type. Modrinth's current v2 response includes it.
+    if (!version.version_type) return true;
+    return version.version_type === 'release' || (channel === 'allow-beta' && version.version_type === 'beta');
+  }
+
+  private async getProjects(
+    projectIds: string[],
+    signal?: AbortSignal,
+  ): Promise<Map<string, ModrinthProjectResponse>> {
+    throwIfAborted(signal);
     if (projectIds.length === 0) return new Map();
     const uniqueIds = [...new Set(projectIds)];
-    const response = await request(
+    const response = await this.apiRequest(
       `${this.baseUrl}/projects?ids=${encodeURIComponent(JSON.stringify(uniqueIds))}`,
-      { headers: { 'User-Agent': this.userAgent } },
+      { headers: { 'User-Agent': this.userAgent }, signal },
     );
-    if (response.statusCode !== 200) return new Map();
+    if (response.statusCode !== 200) {
+      response.body.resume();
+      return new Map();
+    }
     const projects = await response.body.json() as ModrinthProjectResponse[];
     return new Map(projects.map((project) => [project.id, project]));
   }
@@ -295,12 +439,14 @@ export class ModrinthClient {
     mcVersion: string,
     sourceLoader: string,
     targetLoader: string,
+    signal?: AbortSignal,
   ): Promise<LoaderMigrationPlan> {
+    throwIfAborted(signal);
     if (mods.length === 0) {
       return { sourceLoader, targetLoader, mcVersion, entries: [], issues: [], complete: true };
     }
 
-    const response = await request(`${this.baseUrl}/version_files/update`, {
+    const response = await this.apiRequest(`${this.baseUrl}/version_files/update`, {
       method: 'POST',
       headers: {
         'User-Agent': this.userAgent,
@@ -312,9 +458,10 @@ export class ModrinthClient {
         loaders: [targetLoader],
         game_versions: [mcVersion],
       }),
+      signal,
     });
     if (response.statusCode !== 200) {
-      throw new Error(`Modrinth API error: ${response.statusCode}`);
+      throw this.apiError(response);
     }
 
     const versionsByHash = await response.body.json() as Record<string, ModrinthVersionResponse>;
@@ -341,7 +488,9 @@ export class ModrinthClient {
       activationKey: string,
       ancestry: Set<string>,
     ): Promise<void> => {
+      throwIfAborted(signal);
       for (const dependency of dependencies) {
+        throwIfAborted(signal);
         if (dependency.dependencyType === 'embedded') continue;
         const label = dependency.projectId ?? dependency.fileName ?? 'Unknown dependency';
 
@@ -352,9 +501,14 @@ export class ModrinthClient {
 
         let version: ModrinthVersionResponse | null = null;
         if (dependency.versionId) {
-          version = await this.getVersion(dependency.versionId);
+          version = await this.getVersion(dependency.versionId, signal);
         } else if (dependency.projectId) {
-          version = await this.getCompatibleProjectVersion(dependency.projectId, targetLoader, mcVersion);
+          version = await this.getCompatibleProjectVersion(
+            dependency.projectId,
+            targetLoader,
+            mcVersion,
+            signal,
+          );
         }
 
         const isRequired = dependency.dependencyType === 'required';
@@ -438,6 +592,7 @@ export class ModrinthClient {
     };
 
     for (const mod of mods) {
+      throwIfAborted(signal);
       const version = versionsByHash[mod.file.sha1];
       if (!version || !version.loaders.includes(targetLoader) || !version.game_versions.includes(mcVersion)) {
         const entry: MigrationEntry = {
@@ -490,7 +645,7 @@ export class ModrinthClient {
     const dependencyProjectIds = entries
       .filter((entry) => entry.dependencyType !== 'root' && entry.projectId)
       .map((entry) => entry.projectId!);
-    const projects = await this.getProjects(dependencyProjectIds);
+    const projects = await this.getProjects(dependencyProjectIds, signal);
     for (const entry of entries) {
       if (!entry.projectId || entry.dependencyType === 'root') continue;
       const project = projects.get(entry.projectId);
@@ -523,7 +678,10 @@ export class ModrinthClient {
     mods: Mod[],
     mcVersion: string,
     selectedLoader?: string,
+    channel: 'stable-only' | 'allow-beta' = 'stable-only',
+    signal?: AbortSignal,
   ): Promise<{ updates: ModUpdate[]; upToDate: Mod[] }> {
+    throwIfAborted(signal);
     if (mods.length === 0) {
       return { updates: [], upToDate: [] };
     }
@@ -534,6 +692,7 @@ export class ModrinthClient {
     // Using only the most common loader keeps results on the user's actual loader.
     const loaderCount = new Map<string, number>();
     for (const mod of mods) {
+      throwIfAborted(signal);
       for (const loader of mod.loaders) {
         loaderCount.set(loader, (loaderCount.get(loader) ?? 0) + 1);
       }
@@ -544,7 +703,7 @@ export class ModrinthClient {
         : null
     );
 
-    const response = await request(`${this.baseUrl}/version_files/update`, {
+    const response = await this.apiRequest(`${this.baseUrl}/version_files/update`, {
       method: 'POST',
       headers: {
         'User-Agent': this.userAgent,
@@ -556,10 +715,11 @@ export class ModrinthClient {
         loaders: primaryLoader ? [primaryLoader] : [],
         game_versions: [mcVersion],
       }),
+      signal,
     });
 
     if (response.statusCode !== 200) {
-      throw new Error(`Modrinth API error: ${response.statusCode}`);
+      throw this.apiError(response);
     }
 
     const data = (await response.body.json()) as Record<string, ModrinthVersionResponse>;
@@ -567,7 +727,17 @@ export class ModrinthClient {
     const upToDate: Mod[] = [];
 
     for (const mod of mods) {
-      const updateData = data[mod.file.sha1];
+      throwIfAborted(signal);
+      let updateData = data[mod.file.sha1];
+      if (updateData && !this.channelAllows(updateData, channel) && primaryLoader) {
+        updateData = (await this.getCompatibleProjectVersions(
+          mod.projectId,
+          primaryLoader,
+          mcVersion,
+          channel,
+          signal,
+        ))[0];
+      }
 
       if (updateData) {
         // Only treat as a real update if:
@@ -595,5 +765,88 @@ export class ModrinthClient {
     }
 
     return { updates, upToDate };
+  }
+
+  async planUpdates(
+    mods: Mod[],
+    mcVersion: string,
+    loader: string,
+    policy: UpdatePolicy,
+    signal?: AbortSignal,
+  ): Promise<UpdatePlan> {
+    throwIfAborted(signal);
+    const ignored = new Set(policy.ignored.map((key) => key.toLowerCase()));
+    const pinnedEntries = Object.entries(policy.pinned);
+    const items: UpdatePlanItem[] = [];
+    const ordinaryMods: Mod[] = [];
+
+    const matchesKey = (mod: Mod, key: string) => (
+      mod.projectId.toLowerCase() === key.toLowerCase()
+      || mod.projectSlug.toLowerCase() === key.toLowerCase()
+    );
+
+    for (const mod of mods) {
+      throwIfAborted(signal);
+      if ([mod.projectId, mod.projectSlug].some((key) => ignored.has(key.toLowerCase()))) {
+        items.push({ mod, action: 'ignored', reason: 'Ignored by instance settings.' });
+        continue;
+      }
+
+      const pin = pinnedEntries.find(([key]) => matchesKey(mod, key))?.[1];
+      if (!pin) {
+        ordinaryMods.push(mod);
+        continue;
+      }
+      if (pin === mod.installedVersionId || pin === mod.installedVersionNumber) {
+        items.push({ mod, action: 'pinned', pinnedVersion: pin, reason: `Pinned at installed version ${pin}.` });
+        continue;
+      }
+
+      const versions = await this.getCompatibleProjectVersions(
+        mod.projectId,
+        loader,
+        mcVersion,
+        policy.channel,
+        signal,
+      );
+      const pinnedVersion = versions.find((version) => version.id === pin || version.version_number === pin);
+      const update = pinnedVersion ? this.createUpdate(mod, pinnedVersion) : null;
+      if (!update) {
+        items.push({
+          mod,
+          action: 'incompatible',
+          pinnedVersion: pin,
+          reason: `Pinned version ${pin} is unavailable for ${loader} Minecraft ${mcVersion}.`,
+        });
+      } else {
+        items.push({ mod, action: 'update', update, pinnedVersion: pin, reason: `Pinned to version ${pin}.` });
+      }
+    }
+
+    const ordinary = await this.checkUpdates(ordinaryMods, mcVersion, loader, policy.channel, signal);
+    const updatesByProject = new Map(ordinary.updates.map((update) => [update.mod.projectId, update]));
+    for (const mod of ordinaryMods) {
+      const update = updatesByProject.get(mod.projectId);
+      if (update) {
+        items.push({ mod, action: 'update', update, reason: `Newest ${policy.channel} compatible version.` });
+      } else if (!mod.loaders.includes(loader) || !mod.supportedMcVersions.includes(mcVersion)) {
+        items.push({
+          mod,
+          action: 'incompatible',
+          reason: `Installed version does not declare support for ${loader} Minecraft ${mcVersion}, and no replacement was found.`,
+        });
+      } else {
+        items.push({ mod, action: 'up-to-date', reason: 'Already at the newest compatible version.' });
+      }
+    }
+
+    const ordered = mods.map((mod) => items.find((item) => item.mod.file.sha1 === mod.file.sha1)!).filter(Boolean);
+    return {
+      minecraftVersion: mcVersion,
+      loader,
+      channel: policy.channel,
+      items: ordered,
+      updates: ordered.flatMap((item) => item.update ? [item.update] : []),
+    };
   }
 }

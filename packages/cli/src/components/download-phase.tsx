@@ -53,6 +53,7 @@ export function DownloadPhase({
   const hotkeys: HotkeyItem[] = [
     { key: '↑↓', label: t.common.hotkeys.scroll, tone: 'primary' },
     { key: 'O', label: t.common.hotkeys.open, tone: 'primary' },
+    { key: 'C', label: t.common.hotkeys.cancel, tone: 'warning' },
     { key: 'Q', label: t.common.hotkeys.quit, tone: 'muted' },
   ];
 

@@ -18,10 +18,28 @@ import {
 } from './components/migration-phase.js';
 import { getWorkflowStep } from './state/workflow.js';
 import { getInstalledVersionUrl, getUpdateVersionUrl, openExternalUrl } from './utils/modrinth.js';
-import { UpmodsCore } from '@upmods/core';
+import {
+  UpmodsCore,
+  evaluateUpdateSafety,
+  isOperationCancelledError,
+  selectUpdatePlanItems,
+} from '@upmods/core';
+import type { InstanceResolution, SupportedModLoader } from '@upmods/core';
 
 interface AppProps {
   dir: string;
+  instance: InstanceResolution;
+}
+
+type SettledRequest<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: unknown };
+
+function settleRequest<T>(request: Promise<T>): Promise<SettledRequest<T>> {
+  return request.then(
+    (value) => ({ ok: true, value }),
+    (error: unknown) => ({ ok: false, error }),
+  );
 }
 
 function getMigrationOutputDir(dir: string, loader: string, mcVersion: string): string {
@@ -29,7 +47,7 @@ function getMigrationOutputDir(dir: string, loader: string, mcVersion: string): 
   return path.join(dir, 'mods-updated', environmentName);
 }
 
-export function App({ dir }: AppProps) {
+export function App({ dir, instance }: AppProps) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const { exit } = useApp();
   const coreRef = useRef<UpmodsCore | null>(null);
@@ -71,6 +89,12 @@ export function App({ dir }: AppProps) {
   useInput((input, key) => {
     if (input === 'q' || input === 'Q') exit();
     if (input === 'l' || input === 'L') dispatch({ type: 'TOGGLE_LANGUAGE' });
+    if (
+      (input === 'c' || input === 'C')
+      && ['checking', 'migration_checking', 'migration_building', 'downloading'].includes(state.phase)
+    ) {
+      dispatch({ type: 'CANCEL_OPERATION' });
+    }
 
     // Proceed from scan summary to version select
     if (state.phase === 'scan_complete' && key.return) {
@@ -79,7 +103,14 @@ export function App({ dir }: AppProps) {
     if (state.phase === 'scan_complete') {
       if (key.upArrow) dispatch({ type: 'SCAN_CURSOR_UP' });
       if (key.downArrow) dispatch({ type: 'SCAN_CURSOR_DOWN' });
+      if (input === 'f' || input === 'F') dispatch({ type: 'QUICK_CHECK' });
+      if (input === 'x' || input === 'X') dispatch({ type: 'RESCAN' });
     }
+
+    if ((input === 'b' || input === 'B') && ['version_select', 'loader_select', 'check_complete', 'migration_review', 'done'].includes(state.phase)) {
+      dispatch({ type: 'GO_BACK' });
+    }
+    if (state.phase === 'error' && (input === 't' || input === 'T')) dispatch({ type: 'RESCAN' });
 
     // Version select navigation
     if (state.phase === 'version_select') {
@@ -145,9 +176,26 @@ export function App({ dir }: AppProps) {
   useEffect(() => {
     const core = new UpmodsCore();
     coreRef.current = core;
+    const controller = new AbortController();
+    let active = true;
+    let gameVersionsRequest: Promise<SettledRequest<import('@upmods/core').MCVersion[]>> | null = null;
+    let modLoadersRequest: Promise<SettledRequest<import('@upmods/core').ModLoader[]>> | null = null;
+
+    const startMetadataRequests = () => {
+      gameVersionsRequest ??= settleRequest(core.getGameVersions(controller.signal));
+      modLoadersRequest ??= settleRequest(core.getModLoaders(controller.signal));
+    };
+
+    const dispatchError = (err: unknown) => {
+      if (!active) return;
+      if (isOperationCancelledError(err)) return;
+      const message = err instanceof Error ? err.message : String(err);
+      dispatch({ type: 'ERROR', message });
+    };
 
     const onScanStart = (_scanDir: string, total: number) => {
       dispatch({ type: 'SCAN_PROGRESS', done: 0, total });
+      if (total > 0) startMetadataRequests();
     };
 
     const onScanProgress = (done: number, total: number) => {
@@ -157,23 +205,35 @@ export function App({ dir }: AppProps) {
     const onScanComplete = (result: import('@upmods/core').ScanResult) => {
       dispatch({ type: 'SCAN_COMPLETE', result });
 
-      // Load game versions in the background (but don't transition yet)
-      core.getGameVersions().then((versions) => {
-        dispatch({ type: 'MC_VERSIONS_LOADED', versions });
-      }).catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        dispatch({ type: 'ERROR', message });
+      if (result.totalFiles === 0) return;
+      startMetadataRequests();
+
+      // Metadata starts during hashing, overlapping independent network and disk work.
+      gameVersionsRequest!.then((outcome) => {
+        if (!active) return;
+        if (!outcome.ok) {
+          dispatchError(outcome.error);
+          return;
+        }
+        dispatch({
+          type: 'MC_VERSIONS_LOADED',
+          versions: outcome.value,
+          preferredVersion: instance.minecraftVersion,
+        });
       });
 
-      core.getModLoaders().then((loaders) => {
+      modLoadersRequest!.then((outcome) => {
+        if (!active) return;
+        if (!outcome.ok) {
+          dispatchError(outcome.error);
+          return;
+        }
         dispatch({
           type: 'MOD_LOADERS_LOADED',
-          loaders,
+          loaders: outcome.value,
           detection: core.detectSourceLoader(result.identified),
+          preferredLoader: instance.loader,
         });
-      }).catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        dispatch({ type: 'ERROR', message });
       });
     };
 
@@ -181,17 +241,20 @@ export function App({ dir }: AppProps) {
     core.on('scan:progress', onScanProgress);
     core.on('scan:complete', onScanComplete);
 
-    core.scanAndIdentify(dir).catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      dispatch({ type: 'ERROR', message });
-    });
+    startMetadataRequests();
+    core.scanAndIdentify(dir, {
+      metadataFallback: true,
+      signal: controller.signal,
+    }).catch(dispatchError);
 
     return () => {
+      active = false;
+      controller.abort();
       core.off('scan:start', onScanStart);
       core.off('scan:progress', onScanProgress);
       core.off('scan:complete', onScanComplete);
     };
-  }, [dir]);
+  }, [dir, instance.minecraftVersion, instance.loader, state.scanGeneration]);
 
   // Handle MC version selection and update check
   useEffect(() => {
@@ -200,53 +263,76 @@ export function App({ dir }: AppProps) {
 
     const selectedVersion = state.mcVersions[state.selectedMCVersionIndex]?.version;
     if (!selectedVersion || !state.scanResult) return;
+    const controller = new AbortController();
 
-    const onCheckComplete = (
-      updates: import('@upmods/core').ModUpdate[],
-      upToDate: import('@upmods/core').Mod[]
-    ) => {
-      dispatch({ type: 'CHECK_COMPLETE', updates, upToDate });
-    };
-
-    core.on('check:complete', onCheckComplete);
-
-    core.checkUpdates(
+    const auditReport = core.audit(state.scanResult, {
+      minecraftVersion: selectedVersion,
+      loader: state.selectedTargetLoader,
+    });
+    core.planUpdates(
       state.scanResult.identified,
       selectedVersion,
-      state.selectedTargetLoader ?? undefined,
-    ).catch((err: unknown) => {
+      state.selectedTargetLoader ?? '',
+      {
+        channel: instance.config.channel,
+        ignored: instance.config.ignored,
+        pinned: instance.config.pinned,
+      },
+      controller.signal,
+    ).then((plan) => {
+      dispatch({ type: 'UPDATE_PLAN_COMPLETE', items: plan.items, auditReport });
+    }).catch((err: unknown) => {
+      if (isOperationCancelledError(err)) return;
       const message = err instanceof Error ? err.message : String(err);
       dispatch({ type: 'ERROR', message });
     });
-
-    return () => {
-      core.off('check:complete', onCheckComplete);
-    };
+    return () => controller.abort();
   }, [
     state.phase,
     state.selectedMCVersionIndex,
     state.mcVersions,
     state.scanResult,
     state.selectedTargetLoader,
+    instance.config,
   ]);
+
+  // Persist explicitly confirmed or quick-check settings for this instance.
+  useEffect(() => {
+    const core = coreRef.current;
+    if (!core || state.phase !== 'checking') return;
+    const minecraftVersion = state.mcVersions[state.selectedMCVersionIndex]?.version;
+    const loader = state.selectedTargetLoader;
+    if (!minecraftVersion || !loader || !['fabric', 'forge', 'neoforge', 'quilt'].includes(loader)) return;
+    core.saveInstanceConfig(instance.instanceDir, {
+      ...instance.config,
+      minecraftVersion,
+      loader: loader as SupportedModLoader,
+    }).catch((err: unknown) => {
+      dispatch({ type: 'ERROR', message: err instanceof Error ? err.message : String(err) });
+    });
+  }, [state.phase, state.mcVersions, state.selectedMCVersionIndex, state.selectedTargetLoader, instance]);
 
   // Analyze a cross-loader migration after the target environment is confirmed.
   useEffect(() => {
     const core = coreRef.current;
     if (!core || state.phase !== 'migration_checking' || !state.scanResult) return;
     if (!state.selectedMCVersion || !state.selectedSourceLoader || !state.selectedTargetLoader) return;
+    const controller = new AbortController();
 
     core.planLoaderMigration(
       state.scanResult.identified,
       state.selectedMCVersion,
       state.selectedSourceLoader,
       state.selectedTargetLoader,
+      controller.signal,
     ).then((plan) => {
       dispatch({ type: 'MIGRATION_PLAN_COMPLETE', plan });
     }).catch((err: unknown) => {
+      if (isOperationCancelledError(err)) return;
       const message = err instanceof Error ? err.message : String(err);
       dispatch({ type: 'ERROR', message });
     });
+    return () => controller.abort();
   }, [
     state.phase,
     state.scanResult,
@@ -260,6 +346,7 @@ export function App({ dir }: AppProps) {
     const core = coreRef.current;
     if (!core || state.phase !== 'migration_building' || !state.migrationPlan) return;
     if (!state.selectedMCVersion || !state.selectedTargetLoader) return;
+    const controller = new AbortController();
 
     const outputDir = getMigrationOutputDir(dir, state.selectedTargetLoader, state.selectedMCVersion);
     const selectedOptionalEntryIds = Object.entries(state.selectedOptionalEntries)
@@ -282,14 +369,17 @@ export function App({ dir }: AppProps) {
       state.migrationPlan,
       selectedOptionalEntryIds,
       outputDir,
+      controller.signal,
     ).then((result) => {
       dispatch({ type: 'MIGRATION_COMPLETE', result });
     }).catch((err: unknown) => {
+      if (isOperationCancelledError(err)) return;
       const message = err instanceof Error ? err.message : String(err);
       dispatch({ type: 'ERROR', message });
     });
 
     return () => {
+      controller.abort();
       core.off('migration:progress', onProgress);
     };
   }, [
@@ -305,6 +395,7 @@ export function App({ dir }: AppProps) {
   useEffect(() => {
     const core = coreRef.current;
     if (!core || state.phase !== 'downloading') return;
+    const controller = new AbortController();
 
     const outputDir = path.join(dir, 'mods-updated');
 
@@ -343,12 +434,14 @@ export function App({ dir }: AppProps) {
     core.on('download:error', onDownloadError);
     core.on('all:done', onAllDone);
 
-    core.downloadUpdates(state.activeDownloads, outputDir).catch((err: unknown) => {
+    core.downloadUpdates(state.activeDownloads, outputDir, controller.signal).catch((err: unknown) => {
+      if (isOperationCancelledError(err)) return;
       const message = err instanceof Error ? err.message : String(err);
       dispatch({ type: 'ERROR', message });
     });
 
     return () => {
+      controller.abort();
       core.off('download:progress', onDownloadProgress);
       core.off('download:complete', onDownloadComplete);
       core.off('download:error', onDownloadError);
@@ -418,7 +511,7 @@ export function App({ dir }: AppProps) {
       );
     }
     if (state.phase === 'checking') {
-      return <CheckingPhase workflowStep={workflowStep} />;
+      return <CheckingPhase workflowStep={workflowStep} cancellable />;
     }
     if (state.phase === 'migration_checking') {
       return <MigrationLoadingPhase building={false} workflowStep={workflowStep} />;
@@ -467,6 +560,10 @@ export function App({ dir }: AppProps) {
           selectedUpdates={state.selectedUpdates}
           checkCursorIndex={state.checkCursorIndex}
           upToDate={state.upToDate}
+          planItems={state.updatePlanItems}
+          auditReport={state.auditReport}
+          scanResult={state.scanResult}
+          channel={instance.config.channel}
           workflowStep={workflowStep}
         />
       );
@@ -493,6 +590,14 @@ export function App({ dir }: AppProps) {
       );
     }
     if (state.phase === 'done') {
+      const successfulUpdateSha1s = state.downloadResults
+        .filter((result) => result.success)
+        .map((result) => result.update.mod.file.sha1);
+      const applySafety = evaluateUpdateSafety(
+        selectUpdatePlanItems(state.updatePlanItems, successfulUpdateSha1s),
+        state.auditReport,
+        state.scanResult,
+      );
       return (
         <SummaryPhase
           downloadResults={state.downloadResults}
@@ -501,6 +606,7 @@ export function App({ dir }: AppProps) {
           lastBackupSession={state.lastBackupSession}
           lastApplyResult={state.lastApplyResult}
           lastRollbackResult={state.lastRollbackResult}
+          applySafety={applySafety}
           workflowStep={workflowStep}
         />
       );

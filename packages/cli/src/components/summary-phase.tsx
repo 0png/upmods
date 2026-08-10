@@ -5,7 +5,13 @@ import { useLanguage } from '../i18n/use-language.js';
 import { truncateText } from '../utils/display.js';
 import { getUpdateVersionUrl } from '../utils/modrinth.js';
 import { formatListNumber, getViewportState } from '../utils/viewport.js';
-import type { ApplyResult, BackupSessionManifest, DownloadResult, RollbackResult } from '@upmods/core';
+import type {
+  ApplyResult,
+  BackupSessionManifest,
+  DownloadResult,
+  RollbackResult,
+  UpdateSafetyReport,
+} from '@upmods/core';
 
 export interface SummaryPhaseProps {
   downloadResults: DownloadResult[];
@@ -15,6 +21,7 @@ export interface SummaryPhaseProps {
   lastApplyResult: ApplyResult | null;
   lastRollbackResult: RollbackResult | null;
   workflowStep: number | null;
+  applySafety: UpdateSafetyReport;
 }
 
 const VISIBLE_COUNT = 8;
@@ -27,6 +34,7 @@ export function SummaryPhase({
   lastApplyResult,
   lastRollbackResult,
   workflowStep,
+  applySafety,
 }: SummaryPhaseProps) {
   const { t } = useLanguage();
 
@@ -39,12 +47,13 @@ export function SummaryPhase({
           { key: 'O', label: t.common.hotkeys.open, tone: 'primary' as const },
         ]
       : []),
-    ...(successful.length > 0 && !lastApplyResult
+    ...(successful.length > 0 && !lastApplyResult && applySafety.safe
       ? [{ key: 'A', label: t.common.hotkeys.apply, tone: 'warning' as const }]
       : []),
     ...(lastBackupSession
       ? [{ key: 'R', label: t.common.hotkeys.rollback, tone: 'danger' as const }]
       : []),
+    { key: 'B', label: t.common.hotkeys.back, tone: 'muted' },
     { key: 'Q', label: t.common.hotkeys.quit, tone: 'muted' },
     { key: 'L', label: t.common.hotkeys.language, tone: 'muted' },
   ];
@@ -74,6 +83,14 @@ export function SummaryPhase({
         <Text color="green">✓ </Text>
         <Text bold>{summary}</Text>
       </Box>
+
+      {successful.length > 0 && !lastApplyResult && !applySafety.safe && applySafety.blockers[0] ? (
+        <Text color="red">
+          ! {t.summary.applyBlocked
+            .replace('{message}', applySafety.blockers[0].message)
+            .replace('{remediation}', applySafety.blockers[0].remediation)}
+        </Text>
+      ) : null}
 
       <Box marginBottom={1}>
         <Text dimColor>{t.summary.outputDir} </Text>

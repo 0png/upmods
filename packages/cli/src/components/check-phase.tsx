@@ -5,7 +5,8 @@ import { useLanguage } from '../i18n/use-language.js';
 import { fitColumn } from '../utils/display.js';
 import { formatListNumber, getViewportState } from '../utils/viewport.js';
 import { getInstalledVersionUrl, getUpdateVersionUrl } from '../utils/modrinth.js';
-import type { ModUpdate, Mod } from '@upmods/core';
+import type { AuditReport, ModUpdate, Mod, ScanResult, UpdateChannel, UpdatePlanItem } from '@upmods/core';
+import { evaluateUpdateSafety, selectUpdatePlanItems } from '@upmods/core';
 
 export interface CheckPhaseProps {
   updates: ModUpdate[];
@@ -13,6 +14,10 @@ export interface CheckPhaseProps {
   checkCursorIndex: number;
   upToDate: Mod[];
   workflowStep: number | null;
+  planItems?: UpdatePlanItem[];
+  auditReport?: AuditReport | null;
+  scanResult?: ScanResult | null;
+  channel: UpdateChannel;
 }
 
 const NUMBER_WIDTH = 5;
@@ -28,12 +33,27 @@ export function CheckPhase({
   checkCursorIndex,
   upToDate,
   workflowStep,
+  planItems = [],
+  auditReport = null,
+  scanResult = null,
+  channel,
 }: CheckPhaseProps) {
   const { t } = useLanguage();
 
   const hasUpdates = updates.length > 0;
   const selectedCount = updates.filter((update) => selectedUpdates[update.mod.file.sha1]).length;
-  const totalChecked = updates.length + upToDate.length;
+  const totalChecked = planItems.length > 0 ? planItems.length : updates.length + upToDate.length;
+  const skippedPlanItems = planItems.filter((item) => item.action !== 'update');
+  const safety = evaluateUpdateSafety(
+    selectUpdatePlanItems(
+      planItems,
+      updates
+        .filter((update) => selectedUpdates[update.mod.file.sha1])
+        .map((update) => update.mod.file.sha1),
+    ),
+    auditReport,
+    scanResult,
+  );
   const checkItems = [
     ...updates.map((update) => ({
       kind: 'update' as const,
@@ -44,6 +64,7 @@ export function CheckPhase({
       available: update.latestVersionNumber,
       status: `${t.check.updateAvailable} ↑`,
       selected: selectedUpdates[update.mod.file.sha1],
+      reason: planItems.find((item) => item.update?.mod.file.sha1 === update.mod.file.sha1)?.reason ?? '',
     })),
     ...upToDate.map((mod) => ({
       kind: 'upToDate' as const,
@@ -54,15 +75,28 @@ export function CheckPhase({
       available: '—',
       status: `${t.check.upToDate} ✓`,
       selected: false,
+      reason: '',
+    })),
+    ...skippedPlanItems.filter((item) => item.action !== 'up-to-date').map((item) => ({
+      kind: 'decision' as const,
+      key: item.mod.file.sha1,
+      url: getInstalledVersionUrl(item.mod),
+      modName: item.mod.displayName,
+      installed: item.mod.installedVersionNumber,
+      available: item.pinnedVersion ?? '—',
+      status: item.action,
+      selected: false,
+      reason: item.reason,
     })),
   ];
-  const canDownload = hasUpdates && selectedCount > 0;
+  const canDownload = hasUpdates && selectedCount > 0 && safety.safe;
   const hotkeys: HotkeyItem[] = hasUpdates
     ? [
         { key: '↑↓', label: t.common.hotkeys.scroll, tone: 'primary' },
         { key: 'Space', label: t.common.hotkeys.toggle, tone: 'primary' },
         { key: 'A', label: t.common.hotkeys.selectAll, tone: 'success' },
         { key: 'N', label: t.common.hotkeys.selectNone, tone: 'muted' },
+        { key: 'B', label: t.common.hotkeys.back, tone: 'muted' },
         ...(canDownload
           ? [{ key: 'U', label: t.common.hotkeys.download, tone: 'warning' as const }]
           : []),
@@ -74,15 +108,25 @@ export function CheckPhase({
         { key: 'L', label: t.common.hotkeys.language, tone: 'muted' },
       ];
 
-  const summary = hasUpdates
+  const selectionSummary = hasUpdates
     ? (
-        canDownload
+        selectedCount > 0
           ? t.check.selectionSummary
           : t.check.noneSelected
       )
         .replace('{selected}', String(selectedCount))
         .replace('{count}', String(updates.length))
     : t.check.allUpToDate;
+  const channelSummary = t.check.channel.replace('{channel}', channel);
+  const auditSummary = auditReport
+    ? t.check.auditSummary
+        .replace('{errors}', String(auditReport.errorCount))
+        .replace('{warnings}', String(auditReport.warningCount))
+    : null;
+  const blockedSummary = safety.safe
+    ? null
+    : t.check.blockedSummary.replace('{count}', String(safety.blockers.length));
+  const summary = [selectionSummary, channelSummary, auditSummary, blockedSummary].filter(Boolean).join(' · ');
   const viewport = getViewportState(checkItems, checkCursorIndex, VISIBLE_COUNT);
   const browsing = checkItems.length > 0
     ? t.check.browsing
@@ -107,10 +151,18 @@ export function CheckPhase({
     >
       {browsing ? <Text dimColor>{browsing}</Text> : null}
       {overflow ? <Text dimColor>{overflow}</Text> : null}
-      {currentItem ? (
-        <Text dimColor>
-          {t.check.modrinthLink} {currentItem.url}
+      {!safety.safe && safety.blockers[0] ? (
+        <Text color="red">
+          ! {t.check.blockedDetail
+            .replace('{message}', safety.blockers[0].message)
+            .replace('{remediation}', safety.blockers[0].remediation)}
         </Text>
+      ) : null}
+      {currentItem ? (
+        <Box flexDirection="column">
+          <Text dimColor>{t.check.modrinthLink} {currentItem.url}</Text>
+          {currentItem.reason ? <Text dimColor>{currentItem.reason}</Text> : null}
+        </Box>
       ) : null}
       <Box marginBottom={1}>
         <Text bold dimColor>{fitColumn('#', NUMBER_WIDTH)}</Text>
@@ -145,7 +197,7 @@ export function CheckPhase({
           <Text color={item.kind === 'update' ? 'green' : undefined} dimColor={item.kind !== 'update'}>
             {fitColumn(item.available, VERSION_WIDTH)}
           </Text>
-          <Text color={item.kind === 'update' ? 'yellow' : 'green'}>
+          <Text color={item.kind === 'update' ? 'yellow' : item.kind === 'decision' && item.status === 'incompatible' ? 'red' : 'green'}>
             {fitColumn(item.status, STATUS_WIDTH)}
           </Text>
         </Box>

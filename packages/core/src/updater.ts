@@ -13,13 +13,35 @@ import type {
   LoaderMigrationPlan,
   MigrationResult,
   ModLoader,
+  ScanOptions,
+  ModpackLockfile,
+  LockfileVerificationResult,
+  AuditOptions,
+  AuditReport,
+  InstanceConfig,
+  InstanceConfigPatch,
+  InstanceConfigUpdateResult,
+  InstanceResolution,
+  UpdateExecutionResult,
+  UpdatePlan,
+  UpdatePlanItem,
+  UpdatePolicy,
+  UpdateSafetyReport,
 } from './types.js';
 import { scanDirectory } from './scanner.js';
+import { readLocalJarMetadata } from './jar-metadata.js';
 import { ModrinthClient } from './modrinth.js';
+import type { ModrinthClientOptions } from './modrinth.js';
 import { downloadFile } from './downloader.js';
 import { applyDownloadedUpdates, rollbackLatestBackupSession } from './backup.js';
 import { detectSourceLoader, materializeMigrationPlan } from './migration.js';
 import pLimit from 'p-limit';
+import { verifyModpackLockfile, writeModpackLockfile } from './lockfile.js';
+import { auditModSet, evaluateUpdateSafety, updateSafetyFailureMessage } from './audit.js';
+import { getInstanceConfig, resolveInstance, updateInstanceConfig, writeInstanceConfig } from './instance.js';
+import path from 'node:path';
+import { mkdir, rm } from 'node:fs/promises';
+import { isOperationCancelledError, throwIfAborted } from './abort.js';
 
 // Declaration merging: overlay typed event methods on the class
 // This gives full type-safety for CoreEvents without runtime overhead
@@ -33,13 +55,17 @@ export declare interface UpmodsCore {
   removeAllListeners<K extends keyof CoreEvents>(event?: K): this;
 }
 
+export interface UpmodsCoreOptions {
+  modrinth?: ModrinthClientOptions;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class UpmodsCore extends EventEmitter {
   private readonly modrinth: ModrinthClient;
 
-  constructor() {
+  constructor(options: UpmodsCoreOptions = {}) {
     super();
-    this.modrinth = new ModrinthClient();
+    this.modrinth = new ModrinthClient(undefined, options.modrinth);
   }
 
   /**
@@ -48,7 +74,7 @@ export class UpmodsCore extends EventEmitter {
    * @param dir Absolute path to the directory to scan
    * @returns ScanResult with identified mods and unidentified files
    */
-  async scanAndIdentify(dir: string): Promise<ScanResult> {
+  async scanAndIdentify(dir: string, options: ScanOptions = {}): Promise<ScanResult> {
     const startTime = Date.now();
 
     try {
@@ -59,7 +85,7 @@ export class UpmodsCore extends EventEmitter {
           this.emit('scan:start', dir, total);
         }
         this.emit('scan:progress', done, total);
-      });
+      }, options);
 
       // Handle empty directory case — emit scan:start with 0 total
       if (files.length === 0) {
@@ -68,7 +94,9 @@ export class UpmodsCore extends EventEmitter {
 
       // Identify mods via Modrinth
       const sha1s = files.map((f) => f.sha1);
-      const modMap = await this.modrinth.identifyMods(sha1s);
+      const modMap = options.signal
+        ? await this.modrinth.identifyMods(sha1s, options.signal)
+        : await this.modrinth.identifyMods(sha1s);
 
       const identified: Mod[] = [];
       const unidentified: ModFile[] = [];
@@ -91,6 +119,16 @@ export class UpmodsCore extends EventEmitter {
         } else {
           unidentified.push(file);
         }
+      }
+
+      if (options.metadataFallback !== false && unidentified.length > 0) {
+        const metadataLimit = pLimit(Math.min(4, Math.max(1, options.hashConcurrency ?? 4)));
+        await Promise.all(unidentified.map((file) => metadataLimit(async () => {
+          throwIfAborted(options.signal);
+          const metadata = await readLocalJarMetadata(file.path);
+          throwIfAborted(options.signal);
+          if (metadata) file.metadata = metadata;
+        })));
       }
 
       this.emit('identify:complete', identified, unidentified);
@@ -119,9 +157,11 @@ export class UpmodsCore extends EventEmitter {
    * Results are cached after the first call.
    * @returns Array of MCVersion objects, sorted newest-first
    */
-  async getGameVersions(): Promise<MCVersion[]> {
+  async getGameVersions(signal?: AbortSignal): Promise<MCVersion[]> {
     try {
-      return await this.modrinth.getGameVersions();
+      return signal
+        ? await this.modrinth.getGameVersions(signal)
+        : await this.modrinth.getGameVersions();
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.emit('error', error);
@@ -140,11 +180,15 @@ export class UpmodsCore extends EventEmitter {
     mods: Mod[],
     mcVersion: string,
     loader?: string,
+    channel: 'stable-only' | 'allow-beta' = 'stable-only',
+    signal?: AbortSignal,
   ): Promise<{ updates: ModUpdate[]; upToDate: Mod[] }> {
     try {
-      const result = loader === undefined
+      const result = signal
+        ? await this.modrinth.checkUpdates(mods, mcVersion, loader, channel, signal)
+        : loader === undefined && channel === 'stable-only'
         ? await this.modrinth.checkUpdates(mods, mcVersion)
-        : await this.modrinth.checkUpdates(mods, mcVersion, loader);
+        : await this.modrinth.checkUpdates(mods, mcVersion, loader, channel);
       this.emit('check:complete', result.updates, result.upToDate);
       return result;
     } catch (err) {
@@ -163,23 +207,36 @@ export class UpmodsCore extends EventEmitter {
    * @param outputDir Absolute path to the output directory (created if absent)
    * @returns Array of DownloadResult in the same order as updates
    */
-  async downloadUpdates(updates: ModUpdate[], outputDir: string): Promise<DownloadResult[]> {
+  async downloadUpdates(
+    updates: ModUpdate[],
+    outputDir: string,
+    signal?: AbortSignal,
+  ): Promise<DownloadResult[]> {
+    throwIfAborted(signal);
     const limit = pLimit(5);
+    const completedPaths = new Set<string>();
 
     const resultPromises = updates.map((update) =>
       limit(async (): Promise<DownloadResult> => {
+        throwIfAborted(signal);
         this.emit('download:start', update);
 
         try {
-          const result = await downloadFile(
+          const progress = (
+            bytesReceived: number,
+            totalBytes: number,
+          ) => {
+            this.emit('download:progress', update, bytesReceived, totalBytes);
+          };
+          const result = signal ? await downloadFile(
             update,
             outputDir,
-            (bytesReceived: number, totalBytes: number) => {
-              this.emit('download:progress', update, bytesReceived, totalBytes);
-            },
-          );
+            progress,
+            signal,
+          ) : await downloadFile(update, outputDir, progress);
 
           if (result.success) {
+            if (result.outputPath) completedPaths.add(result.outputPath);
             this.emit('download:complete', result);
           } else {
             this.emit('download:error', update, new Error(result.errorReason ?? 'Download failed'));
@@ -187,6 +244,7 @@ export class UpmodsCore extends EventEmitter {
 
           return result;
         } catch (err) {
+          if (isOperationCancelledError(err)) throw err;
           const error = err instanceof Error ? err : new Error(String(err));
           this.emit('download:error', update, error);
           return { update, success: false, errorReason: error.message };
@@ -194,14 +252,26 @@ export class UpmodsCore extends EventEmitter {
       }),
     );
 
-    const results = await Promise.all(resultPromises);
+    let results: DownloadResult[];
+    try {
+      results = await Promise.all(resultPromises);
+    } catch (error) {
+      if (!isOperationCancelledError(error)) throw error;
+      await Promise.allSettled(resultPromises);
+      await Promise.all([...completedPaths].map((filePath) => (
+        rm(filePath, { force: true }).catch(() => undefined)
+      )));
+      throw error;
+    }
     this.emit('all:done', results);
     return results;
   }
 
-  async getModLoaders(): Promise<ModLoader[]> {
+  async getModLoaders(signal?: AbortSignal): Promise<ModLoader[]> {
     try {
-      return await this.modrinth.getModLoaders();
+      return signal
+        ? await this.modrinth.getModLoaders(signal)
+        : await this.modrinth.getModLoaders();
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.emit('error', error);
@@ -218,6 +288,7 @@ export class UpmodsCore extends EventEmitter {
     mcVersion: string,
     sourceLoader: string,
     targetLoader: string,
+    signal?: AbortSignal,
   ): Promise<LoaderMigrationPlan> {
     try {
       const plan = await this.modrinth.planLoaderMigration(
@@ -225,6 +296,7 @@ export class UpmodsCore extends EventEmitter {
         mcVersion,
         sourceLoader,
         targetLoader,
+        signal,
       );
       this.emit('migration:plan-complete', plan);
       return plan;
@@ -239,6 +311,7 @@ export class UpmodsCore extends EventEmitter {
     plan: LoaderMigrationPlan,
     selectedOptionalEntryIds: string[],
     outputDir: string,
+    signal?: AbortSignal,
   ): Promise<MigrationResult> {
     try {
       const result = await materializeMigrationPlan(
@@ -246,6 +319,7 @@ export class UpmodsCore extends EventEmitter {
         selectedOptionalEntryIds,
         outputDir,
         (entry, bytes, total) => this.emit('migration:progress', entry, bytes, total),
+        signal,
       );
       this.emit('migration:complete', result);
       return result;
@@ -277,6 +351,92 @@ export class UpmodsCore extends EventEmitter {
       const error = err instanceof Error ? err : new Error(String(err));
       this.emit('error', error);
       throw error;
+    }
+  }
+
+  async writeLockfile(result: ScanResult): Promise<ModpackLockfile> {
+    return await writeModpackLockfile(result);
+  }
+
+  async verifyLockfile(result: ScanResult): Promise<LockfileVerificationResult> {
+    return await verifyModpackLockfile(result);
+  }
+
+  async resolveInstance(inputDir: string): Promise<InstanceResolution> {
+    return await resolveInstance(inputDir);
+  }
+
+  async saveInstanceConfig(instanceDir: string, config: InstanceConfig): Promise<string> {
+    return await writeInstanceConfig(instanceDir, config);
+  }
+
+  async updateInstanceConfig(
+    instanceDir: string,
+    patch: InstanceConfigPatch,
+  ): Promise<InstanceConfigUpdateResult> {
+    return await updateInstanceConfig(instanceDir, patch);
+  }
+
+  async getInstanceConfig(instanceDir: string): Promise<InstanceConfigUpdateResult> {
+    return await getInstanceConfig(instanceDir);
+  }
+
+  audit(result: ScanResult, options: AuditOptions = {}): AuditReport {
+    return auditModSet(result, options);
+  }
+
+  evaluateUpdateSafety(
+    items: UpdatePlanItem[],
+    auditReport?: AuditReport | null,
+    scan?: ScanResult | null,
+  ): UpdateSafetyReport {
+    return evaluateUpdateSafety(items, auditReport, scan);
+  }
+
+  async planUpdates(
+    mods: Mod[],
+    mcVersion: string,
+    loader: string,
+    policy: UpdatePolicy,
+    signal?: AbortSignal,
+  ): Promise<UpdatePlan> {
+    return await this.modrinth.planUpdates(mods, mcVersion, loader, policy, signal);
+  }
+
+  async executeUpdatePlan(
+    plan: UpdatePlan,
+    modsDir: string,
+    signal?: AbortSignal,
+    auditReport?: AuditReport,
+    scan?: ScanResult,
+  ): Promise<UpdateExecutionResult> {
+    throwIfAborted(signal);
+    const safety = evaluateUpdateSafety(plan.items, auditReport, scan);
+    if (!safety.safe) throw new Error(updateSafetyFailureMessage(safety));
+    if (plan.updates.length === 0) {
+      return { plan, downloads: [], applied: false };
+    }
+    const resolvedModsDir = path.resolve(modsDir);
+    const stageRoot = path.join(resolvedModsDir, '.upmods-stage');
+    const stageDir = path.join(stageRoot, `${Date.now()}-${process.pid}`);
+    await mkdir(stageDir, { recursive: true });
+    try {
+      const downloads = await this.downloadUpdates(plan.updates, stageDir, signal);
+      const failed = downloads.filter((result) => !result.success);
+      if (failed.length > 0) {
+        return {
+          plan,
+          downloads,
+          applied: false,
+          failureReason: `${failed.length} download(s) failed checksum or transfer validation; nothing was applied.`,
+        };
+      }
+      // Apply is a transaction boundary and must finish or restore once entered.
+      throwIfAborted(signal);
+      const applyResult = await this.applyUpdates(plan.updates, stageDir, resolvedModsDir);
+      return { plan, downloads, applyResult, applied: true };
+    } finally {
+      await rm(stageDir, { recursive: true, force: true }).catch(() => undefined);
     }
   }
 }

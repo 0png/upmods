@@ -1,6 +1,6 @@
 {
   "name": "upmods",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Minecraft mods auto-updater CLI",
@@ -13,8 +13,10 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
+    "test:integration": "pnpm build && pnpm test:integration:built",
+    "test:integration:built": "node scripts/integration-built-cli.mjs",
     "pack:cli": "node -e \"require('node:fs').mkdirSync('release', { recursive: true })\" && pnpm --dir packages/cli pack --pack-destination ../../release && node scripts/write-release-checksum.mjs",
-    "release:check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "release:check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm test:integration:built"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",

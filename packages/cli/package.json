@@ -1,6 +1,6 @@
 {
   "name": "upmods",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Minecraft mod updater and cross-loader migration TUI powered by Modrinth",
   "license": "MIT",
@@ -35,8 +35,8 @@
   ],
   "scripts": {
     "dev": "tsx src/cli.tsx",
-    "build": "tsc --noEmit && esbuild src/cli.tsx --bundle --platform=node --format=esm --target=node20 --alias:react-devtools-core=./src/shims/react-devtools-core.ts --banner:js=\"import { createRequire as __upmodsCreateRequire } from 'node:module'; const require = __upmodsCreateRequire(import.meta.url);\" --outfile=dist/cli.js --sourcemap",
-    "test": "tsx --test src/state/reducer.test.ts src/state/workflow.test.ts src/utils/display.test.ts src/utils/modrinth.test.ts src/utils/viewport.test.ts",
+    "build": "tsc --noEmit && node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && esbuild src/cli.tsx --bundle --splitting --platform=node --format=esm --target=node20 --alias:react-devtools-core=./src/shims/react-devtools-core.ts --banner:js=\"import { createRequire as __upmodsCreateRequire } from 'node:module'; const require = __upmodsCreateRequire(import.meta.url);\" --outdir=dist --entry-names=[name] --chunk-names=chunks/[name]-[hash] --sourcemap",
+    "test": "tsx --test src/args.test.ts src/state/reducer.test.ts src/state/workflow.test.ts src/utils/display.test.ts src/utils/modrinth.test.ts src/utils/viewport.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
     "prepack": "pnpm build"
@@ -45,9 +45,7 @@
     "@upmods/core": "workspace:*",
     "@types/node": "^20.0.0",
     "@types/react": "^18.3.20",
-    "chalk": "^5.4.1",
     "esbuild": "^0.27.3",
-    "i18next": "^24.2.2",
     "ink": "^5.1.0",
     "react": "^18.3.1",
     "tsx": "^4.19.3",

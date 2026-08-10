@@ -12,6 +12,7 @@ import type {
   MigrationResult,
   Mod,
 } from './types.js';
+import { throwIfAborted } from './abort.js';
 
 const { ensureDir, move, pathExists, readJson, remove, writeJson } = fsExtra;
 export const MIGRATION_MANIFEST_FILENAME = '.upmods-migration.json';
@@ -75,7 +76,9 @@ export async function materializeMigrationPlan(
   selectedOptionalIds: string[],
   outputDir: string,
   onProgress?: (entry: MigrationEntry, bytesReceived: number, totalBytes: number) => void,
+  signal?: AbortSignal,
 ): Promise<MigrationResult> {
+  throwIfAborted(signal);
   const resolvedOutputDir = path.resolve(outputDir);
   const parentDir = path.dirname(resolvedOutputDir);
   const outputName = path.basename(resolvedOutputDir);
@@ -120,6 +123,7 @@ export async function materializeMigrationPlan(
 
   try {
     for (const entry of activeEntries.filter((item) => item.status === 'compatible')) {
+      throwIfAborted(signal);
       const sourcePath = entry.sourceMod?.file.path;
       const filename = sourcePath ? path.basename(sourcePath) : '';
       if (!sourcePath || !filename || !registerFilename(entry, filename)) continue;
@@ -154,13 +158,14 @@ export async function materializeMigrationPlan(
     const limit = pLimit(5);
     const downloads = activeEntries.filter((entry) => entry.status !== 'compatible' && entry.update);
     await Promise.all(downloads.map((entry) => limit(async () => {
+      throwIfAborted(signal);
       const update = entry.update!;
       const filename = update.downloadFilename;
       if (!registerFilename(entry, filename)) return;
 
       const result = await downloadFile(update, stagingDir, (bytes, total) => {
         onProgress?.(entry, bytes, total);
-      });
+      }, signal);
       if (result.success) downloadedCount += 1;
       else failedCount += 1;
       files.push({
@@ -175,6 +180,7 @@ export async function materializeMigrationPlan(
       });
     })));
 
+    throwIfAborted(signal);
     const complete = plan.complete && failedCount === 0;
     const manifest: MigrationManifest = {
       schemaVersion: 1,
@@ -190,6 +196,8 @@ export async function materializeMigrationPlan(
     };
     await writeJson(path.join(stagingDir, MIGRATION_MANIFEST_FILENAME), manifest, { spaces: 2 });
 
+    // Cancellation is safe until this point. Once replacement begins, finish or restore atomically.
+    throwIfAborted(signal);
     const hadPrevious = await pathExists(resolvedOutputDir);
     if (hadPrevious) await move(resolvedOutputDir, previousDir);
     try {
