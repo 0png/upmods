@@ -4,6 +4,10 @@ All notable changes to upmods are documented here.
 
 ## Unreleased
 
+### Added
+
+- A public PowerShell installer supporting the short `irm .../install.ps1 | iex` installation flow.
+
 ## 0.2.0 - 2026-08-10
 
 ### Added

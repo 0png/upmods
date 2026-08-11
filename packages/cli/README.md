@@ -13,8 +13,10 @@ Requires [Node.js 20 or newer](https://nodejs.org/).
 PowerShell one-liner:
 
 ```powershell
-$node=Get-Command node.exe -ErrorAction SilentlyContinue; if(-not $node){throw 'upmods requires Node.js 20+: https://nodejs.org/'}; $major=[int]((node --version).TrimStart('v').Split('.')[0]); if($major -lt 20){throw "upmods requires Node.js 20+ (found $(node --version))"}; if(-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)){throw 'npm was not found; reinstall Node.js from https://nodejs.org/'}; npm.cmd install --global upmods@latest; if($LASTEXITCODE -ne 0){throw 'npm could not install upmods'}; upmods.cmd --version
+irm https://raw.githubusercontent.com/0png/upmods/master/install.ps1 | iex
 ```
+
+The public installer checks Node.js 20+, installs the latest npm release, and verifies the installed version. You can [inspect it before running](https://github.com/0png/upmods/blob/master/install.ps1).
 
 Standard install:
 
